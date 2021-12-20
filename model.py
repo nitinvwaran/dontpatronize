@@ -2,6 +2,7 @@ import pandas as pd
 import torch
 import torch.nn as nn
 import os,shutil
+import math
 
 from torch.utils.tensorboard import SummaryWriter
 from sklearn.metrics import f1_score, auc, roc_curve
@@ -14,7 +15,24 @@ class RobertaWrapper():
         self.tokenizer = RobertaTokenizer.from_pretrained('roberta-base')
         self.model = RobertaModel.from_pretrained('roberta-base')
 
+class PositionalEncoding(nn.Module):
 
+    def __init__(self, d_model, dropout=0.1, max_len=5000):
+        super(PositionalEncoding, self).__init__()
+        #self.dropout = nn.Dropout(p=dropout)
+
+        pe = torch.zeros(max_len, d_model)
+        position = torch.arange(0, max_len, dtype=torch.float).unsqueeze(1)
+        div_term = torch.exp(torch.arange(0, d_model, 2).float() * (-math.log(10000.0) / d_model))
+        pe[:, 0::2] = torch.sin(position * div_term)
+        pe[:, 1::2] = torch.cos(position * div_term)
+        pe = pe.unsqueeze(0).transpose(0, 1)
+        self.register_buffer('pe', pe)
+
+    def forward(self, x):
+        x = x + self.pe[:x.size(0), :]
+        #return self.dropout(x)
+        return x
 
 class Model(nn.Module):
     def __init__(self):
@@ -25,8 +43,17 @@ class Model(nn.Module):
         self.bertmodel.model.to(self.device)
 
         self.maxlen = 67
-        self.linear = nn.Linear(768,1)
-        self.linear.to(self.device)
+        self.linear1 = nn.Linear(768,64)
+        self.linear2 = nn.Linear(64,1)
+
+        self.linear1.to(self.device)
+        self.linear2.to(self.device)
+
+        self.relu = nn.ReLU()
+
+        self.transformerencoderlayer = torch.nn.TransformerEncoderLayer(d_model=768,nhead=8,batch_first=True)
+        self.posencoder = PositionalEncoding(d_model=768).to(self.device)
+        self.encoder = torch.nn.TransformerEncoder(self.transformerencoderlayer, num_layers=4).to(self.device)
 
 
 
@@ -50,7 +77,10 @@ class Model(nn.Module):
         output = self.bertmodel.model(**inp)
         lasthiddenstate = output['last_hidden_state']
 
-        input_mask_expanded = attentionmask.unsqueeze(-1).expand(lasthiddenstate.size()).float()
+        src = self.posencoder(lasthiddenstate)
+        feats = self.encoder(src)
+
+        input_mask_expanded = attentionmask.unsqueeze(-1).expand(feats.size()).float()
         lasthiddenstate[input_mask_expanded == 0] = -1e9  # Set padding tokens to large negative value
         maxvectors = torch.max(lasthiddenstate, 1)[0]
 
@@ -67,7 +97,9 @@ class Model(nn.Module):
             i += l
 
         assert squeezedvectors.size(dim=0) == len(dataframe)
-        logits = self.linear(squeezedvectors)
+
+        logits = self.relu(self.linear1(squeezedvectors))
+        logits = self.linear2(logits)
 
         return logits
 
@@ -91,25 +123,29 @@ class TrainEval():
 
         self.sigm = nn.Sigmoid()
 
-        self.optimizer = torch.optim.Adam(self.model.parameters(),lr=0.001)
-        self.epochs = 1000
-        self.samplesize = 32
+        self.optimizer = torch.optim.Adam(self.model.parameters(),lr=0.0001)
+        self.epochs = 1000000
+        self.samplesize = 16
         self.cutoff = 0.5
 
         self.evalstep = 20
 
     def train_eval(self):
 
+        devf1 = float('-inf')
         postraindata = self.preprocess.traindata.loc[self.preprocess.traindata['label'] == 1]
         negtraindata = self.preprocess.traindata.loc[self.preprocess.traindata['label'] == 0]
 
         self.model.train()
         for epoch in range(1,self.epochs):
+
+            torch.cuda.empty_cache()
             possample = postraindata.sample(n=int(self.samplesize / 2))
             negsample = negtraindata.sample(n=int(self.samplesize / 2))
 
             sample = pd.concat([possample,negsample],ignore_index=True)
             sample = sample.sample(frac=1).reset_index(drop=True)
+            self.model.zero_grad()
 
             logits = self.model(sample)
 
@@ -119,7 +155,7 @@ class TrainEval():
 
             loss = self.loss(logits,labels)
 
-            self.optimizer.zero_grad()
+            #self.optimizer.zero_grad()
             loss.backward()
             self.optimizer.step()
 
@@ -173,6 +209,15 @@ class TrainEval():
                 print ('dev f1 score:' + str(f1score))
                 print ('dev loss:' + str(devloss.item()))
                 print ('dev auc:' + str(aucscore))
+
+                lineids = self.preprocess.testdata['lineid'].tolist()
+                splits = self.preprocess.testdata['splits'].tolist()
+
+                errors = pd.concat([pd.Series(lineids),pd.Series(splits),pd.Series(preds),pd.Series(labels)],axis=1,ignore_index=True)
+                if f1score > devf1:
+                    devf1 = f1score
+                    errors.to_csv('data/errors.csv',index=False)
+
                 self.model.train()
 
 

@@ -65,6 +65,8 @@ class PreProcessing():
                     else:
                         label = 1
 
+                    lineid = int(line.split('\t')[0])
+
                     line = line.split('\t')[4]
                     line = line.replace('&amp;',' and ').replace('&apos;','').replace('&gt;','').replace('&lt;','').replace('&quot;','"')
 
@@ -100,13 +102,14 @@ class PreProcessing():
                     splits = [s for s in splits if len(s.split()) >= 3]
 
                     if len(splits) > 0:
+                        datum.append(lineid)
                         datum.append('\t'.join(splits))
                         datum.append(len(splits))
                         datum.append(label)
 
                         listdata.append(datum)
 
-        self.sentencedata = pd.DataFrame(listdata,columns=['splits','lengths','label'])
+        self.sentencedata = pd.DataFrame(listdata,columns=['lineid','splits','lengths','label'])
         self.sentencedata.to_csv('sentencesplits.csv',index=False)
 
         labels = self.sentencedata['label'].tolist()
