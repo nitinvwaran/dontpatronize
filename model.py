@@ -1,3 +1,4 @@
+import pandas as pd
 import torch
 import torch.nn as nn
 import os,shutil
@@ -56,12 +57,8 @@ class Model(nn.Module):
         i = 0
         for l in lengths:
             if i == 0:
-                try:
-                    squeezedvectors = torch.max(maxvectors[i:i + l,:],0)[0]
-                    squeezedvectors = torch.unsqueeze(squeezedvectors,0)
-                except Exception as ex:
-                    print (ex)
-                    print(dataframe)
+                squeezedvectors = torch.max(maxvectors[i:i + l,:],0)[0]
+                squeezedvectors = torch.unsqueeze(squeezedvectors,0)
             else:
                 temp = torch.max(maxvectors[i:i + l, :], 0)[0]
                 temp = torch.unsqueeze(temp, 0)
@@ -94,7 +91,7 @@ class TrainEval():
 
         self.sigm = nn.Sigmoid()
 
-        self.optimizer = torch.optim.Adam(self.model.parameters())
+        self.optimizer = torch.optim.Adam(self.model.parameters(),lr=0.001)
         self.epochs = 1000
         self.samplesize = 32
         self.cutoff = 0.5
@@ -103,9 +100,17 @@ class TrainEval():
 
     def train_eval(self):
 
+        postraindata = self.preprocess.traindata.loc[self.preprocess.traindata['label'] == 1]
+        negtraindata = self.preprocess.traindata.loc[self.preprocess.traindata['label'] == 0]
+
         self.model.train()
         for epoch in range(1,self.epochs):
-            sample = self.preprocess.traindata.sample(n=self.samplesize)
+            possample = postraindata.sample(n=int(self.samplesize / 2))
+            negsample = negtraindata.sample(n=int(self.samplesize / 2))
+
+            sample = pd.concat([possample,negsample],ignore_index=True)
+            sample = sample.sample(frac=1).reset_index(drop=True)
+
             logits = self.model(sample)
 
             labels = sample['label'].tolist()
@@ -119,18 +124,18 @@ class TrainEval():
             self.optimizer.step()
 
             probs = self.sigm(logits)
-            #preds = torch.squeeze((probs > self.cutoff).float()).tolist()
+            preds = torch.squeeze((probs > self.cutoff).float()).tolist()
             labels = torch.squeeze(labels).tolist()
             probs = torch.squeeze(probs).tolist()
 
-            #f1score = f1_score(labels,preds)
+            f1score = f1_score(labels,preds)
             fpr,tpr,_ = roc_curve(labels,probs,pos_label=1)
-            #aucscore = auc(fpr,tpr)
+            aucscore = auc(fpr,tpr)
 
 
             self.writer.add_scalar('train_loss',loss.item(),epoch)
-            #self.writer.add_scalar('train_f1',f1score,i)
-            #self.writer.add_scalar('train_auc',aucscore,i)
+            self.writer.add_scalar('train_f1',f1score,epoch)
+            self.writer.add_scalar('train_auc',aucscore,epoch)
 
             if epoch % self.evalstep == 0: # run evaluation
                 self.model.eval()
