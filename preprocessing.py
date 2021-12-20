@@ -97,14 +97,14 @@ class PreProcessing():
 
                     splits = [s.strip() for s in splits if s]
                     splits = [s for s in splits if s != '"']
-                    splits = [s for s in splits if len(s.split()) >= 2]
+                    splits = [s for s in splits if len(s.split()) >= 3]
 
+                    if len(splits) > 0:
+                        datum.append('\t'.join(splits))
+                        datum.append(len(splits))
+                        datum.append(label)
 
-                    datum.append('\t'.join(splits))
-                    datum.append(len(splits))
-                    datum.append(label)
-
-                    listdata.append(datum)
+                        listdata.append(datum)
 
         self.sentencedata = pd.DataFrame(listdata,columns=['splits','lengths','label'])
         self.sentencedata.to_csv('sentencesplits.csv',index=False)
