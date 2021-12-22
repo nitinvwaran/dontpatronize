@@ -157,9 +157,6 @@ class TrainEval():
 
         torch.cuda.empty_cache()
 
-        patience = [0.0] * 10
-        patienceindex = 0
-
         devf1 = float('-inf')
         postraindata = self.preprocess.traindata.loc[self.preprocess.traindata['label'] == 1]
         negtraindata = self.preprocess.traindata.loc[self.preprocess.traindata['label'] == 0]
@@ -251,22 +248,6 @@ class TrainEval():
                     devf1 = f1score
                     errors.to_csv('data/errors.csv',index=False)
 
-                stopdecision = True
-                # early stopping
-                for score in patience:
-                    if f1score >= score:
-                        stopdecision = False
-                        break
-
-                if stopdecision == True:
-                    print ('Early stop at epoch:' + str(epoch))
-                    break
-
-                patience[patienceindex] = f1score
-                patienceindex += 1
-                if patienceindex == 10:
-                    patienceindex = 0
-
                 self.model.train()
 
         torch.save(self.model.state_dict(), self.checkpointfile)
@@ -278,11 +259,6 @@ def main():
 
     traineval = TrainEval(pclfile,categoriesfile)
     traineval.train_eval()
-
-
-
-
-
 
 if __name__ == "__main__":
     main()
