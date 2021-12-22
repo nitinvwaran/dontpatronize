@@ -55,51 +55,70 @@ class Model(nn.Module):
         self.posencoder = PositionalEncoding(d_model=768).to(self.device)
         self.encoder = torch.nn.TransformerEncoder(self.transformerencoderlayer, num_layers=4).to(self.device)
 
+        self.pooling = 'max' # or max
+
 
 
     def forward(self,dataframe):
 
-        data = [] # holds flattened sentences
+        try:
+            data = [] # holds flattened sentences
 
-        sentences = dataframe['splits'].tolist()
-        lengths = dataframe['lengths'].tolist()
+            sentences = dataframe['splits'].tolist()
+            lengths = dataframe['lengths'].tolist()
 
-        for sent in sentences:
-            s = sent.split('\t')
-            data.extend(s)
+            for sent in sentences:
+                s = sent.split('\t')
+                data.extend(s)
 
 
-        inp = self.bertmodel.tokenizer(data, max_length=self.maxlen, padding='max_length', truncation=True,add_special_tokens=False,return_tensors='pt')
-        inp.to(self.device)
-        inp['output_hidden_states'] = True
-        attentionmask = inp['attention_mask']
+            inp = self.bertmodel.tokenizer(data, max_length=self.maxlen, padding='max_length', truncation=True,add_special_tokens=False,return_tensors='pt')
+            inp.to(self.device)
+            inp['output_hidden_states'] = True
+            attentionmask = inp['attention_mask']
 
-        output = self.bertmodel.model(**inp)
-        lasthiddenstate = output['last_hidden_state']
+            output = self.bertmodel.model(**inp)
+            lasthiddenstate = output['last_hidden_state']
 
-        src = self.posencoder(lasthiddenstate)
-        feats = self.encoder(src)
+            src = self.posencoder(lasthiddenstate)
+            feats = self.encoder(src)
 
-        input_mask_expanded = attentionmask.unsqueeze(-1).expand(feats.size()).float()
-        lasthiddenstate[input_mask_expanded == 0] = -1e9  # Set padding tokens to large negative value
-        maxvectors = torch.max(lasthiddenstate, 1)[0]
+            if self.pooling == 'max':
+                input_mask_expanded = attentionmask.unsqueeze(-1).expand(feats.size()).float()
+                lasthiddenstate[input_mask_expanded == 0] = -1e9  # Set padding tokens to large negative value
+                resultvectors = torch.max(lasthiddenstate, 1)[0]
+            elif self.pooling == 'avg':
+                input_mask_expanded = attentionmask.unsqueeze(-1).expand(feats.size()).float()
+                sum_embeddings = torch.sum(feats * input_mask_expanded, 1)
+                sum_mask = input_mask_expanded.sum(1)
+                sum_mask = torch.clamp(sum_mask, min=1e-9)
+                resultvectors = sum_embeddings / sum_mask
 
-        i = 0
-        for l in lengths:
-            if i == 0:
-                squeezedvectors = torch.max(maxvectors[i:i + l,:],0)[0]
-                squeezedvectors = torch.unsqueeze(squeezedvectors,0)
-            else:
-                temp = torch.max(maxvectors[i:i + l, :], 0)[0]
-                temp = torch.unsqueeze(temp, 0)
-                squeezedvectors = torch.cat((squeezedvectors,temp),0)
 
-            i += l
+            i = 0
+            for l in lengths:
+                if i == 0:
+                    squeezedvectors = torch.max(resultvectors[i:i + l,:],0)[0]
+                    squeezedvectors = torch.unsqueeze(squeezedvectors,0)
+                else:
+                    temp = torch.max(resultvectors[i:i + l, :], 0)[0]
+                    temp = torch.unsqueeze(temp, 0)
+                    squeezedvectors = torch.cat((squeezedvectors,temp),0)
 
-        assert squeezedvectors.size(dim=0) == len(dataframe)
+                i += l
 
-        logits = self.relu(self.linear1(squeezedvectors))
-        logits = self.linear2(logits)
+            assert squeezedvectors.size(dim=0) == len(dataframe)
+
+            logits = self.relu(self.linear1(squeezedvectors))
+            logits = self.linear2(logits)
+
+
+        except Exception as ex:
+            print(ex)
+            print(len(data))
+            print(max(lengths))
+            print(data)
+            raise
 
         return logits
 
@@ -130,7 +149,16 @@ class TrainEval():
 
         self.evalstep = 20
 
+        self.checkpointfile = 'data/checkpoint/model_v1.pt'
+
+
+
     def train_eval(self):
+
+        torch.cuda.empty_cache()
+
+        patience = [0.0] * 10
+        patienceindex = 0
 
         devf1 = float('-inf')
         postraindata = self.preprocess.traindata.loc[self.preprocess.traindata['label'] == 1]
@@ -139,7 +167,7 @@ class TrainEval():
         self.model.train()
         for epoch in range(1,self.epochs):
 
-            torch.cuda.empty_cache()
+
             possample = postraindata.sample(n=int(self.samplesize / 2))
             negsample = negtraindata.sample(n=int(self.samplesize / 2))
 
@@ -173,7 +201,11 @@ class TrainEval():
             self.writer.add_scalar('train_f1',f1score,epoch)
             self.writer.add_scalar('train_auc',aucscore,epoch)
 
+            if epoch % 100 == 0:
+                torch.save(self.model.state_dict(),self.checkpointfile)
+
             if epoch % self.evalstep == 0: # run evaluation
+                torch.cuda.empty_cache()
                 self.model.eval()
 
                 with torch.no_grad():
@@ -190,7 +222,7 @@ class TrainEval():
                         label = torch.unsqueeze(torch.FloatTensor(label),1)
                         label = label.to(self.device)
 
-                        devloss += self.loss(logit,label)
+                        devloss += self.loss(logit,label).item()
                         prob = self.sigm(logit)
 
                         probs.append(prob.item())
@@ -202,24 +234,42 @@ class TrainEval():
                 fpr, tpr, _ = roc_curve(labels, probs, pos_label=1)
                 aucscore = auc(fpr, tpr)
 
-                self.writer.add_scalar('dev_loss', devloss.item(), int(epoch / self.evalstep ))
+                self.writer.add_scalar('dev_loss', devloss, int(epoch / self.evalstep ))
                 self.writer.add_scalar('dev_f1', f1score, int(epoch / self.evalstep))
                 self.writer.add_scalar('dev_auc', aucscore, int(epoch / self.evalstep))
 
-                print ('dev f1 score:' + str(f1score))
-                print ('dev loss:' + str(devloss.item()))
-                print ('dev auc:' + str(aucscore))
+                #print ('dev f1 score:' + str(f1score))
+                #print ('dev loss:' + str(devloss.item()))
+                #print ('dev auc:' + str(aucscore))
 
                 lineids = self.preprocess.testdata['lineid'].tolist()
                 splits = self.preprocess.testdata['splits'].tolist()
 
-                errors = pd.concat([pd.Series(lineids),pd.Series(splits),pd.Series(preds),pd.Series(labels)],axis=1,ignore_index=True)
                 if f1score > devf1:
+                    errors = pd.concat([pd.Series(lineids), pd.Series(splits), pd.Series(preds), pd.Series(labels)],
+                                       axis=1, ignore_index=True)
                     devf1 = f1score
                     errors.to_csv('data/errors.csv',index=False)
 
+                stopdecision = True
+                # early stopping
+                for score in patience:
+                    if f1score >= score:
+                        stopdecision = False
+                        break
+
+                if stopdecision == True:
+                    print ('Early stop at epoch:' + str(epoch))
+                    break
+
+                patience[patienceindex] = f1score
+                patienceindex += 1
+                if patienceindex == 10:
+                    patienceindex = 0
+
                 self.model.train()
 
+        torch.save(self.model.state_dict(), self.checkpointfile)
 
 
 def main():
