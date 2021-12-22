@@ -133,8 +133,11 @@ class TrainEval():
         self.writer = SummaryWriter('tensorboarddir/')
         self.device = torch.device("cuda:0" if torch.cuda.is_available() else "cpu")
 
+        print ('Starting pre-processing')
         self.preprocess = PreProcessing(pclfile,categoryfile)
         self.preprocess.preprocess_data()
+        print('Completed preprocessing')
+
         self.model = Model()
 
         self.loss = nn.BCEWithLogitsLoss()
