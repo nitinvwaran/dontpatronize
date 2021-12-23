@@ -3,6 +3,7 @@ import math
 import pandas as pd
 import numpy as np
 import stanza
+import os
 
 from sklearn.model_selection import train_test_split
 from tqdm import tqdm
@@ -76,7 +77,9 @@ class PreProcessing():
                     line = line.replace('&amp;',' and ').replace('&apos;','').replace('&gt;','').replace('&lt;','').replace('&quot;','"')
 
                     line = re.sub(self.regextag,' ',line)
-                    line = re.sub(self.punctuation,' ',line)
+                    for punct in self.punctuation:
+                        line = line.replace(punct,'')
+
                     line = re.sub(r'(\! )+', '!', line)
                     line = re.sub(r'\!+', ' ! ', line)
                     line = re.sub(r'(\? )+', '?', line)
@@ -156,11 +159,21 @@ class PreProcessing():
         print('paragraphs processed:' + str(len(self.sentencedata)))
         self.sentencedata.to_csv('sentencesplits.csv',index=False)
 
+        print('wrong splits:' + str(counter))
+
+
+
+    def load_preprocessed_data(self):
+        if os.path.exists('sentencesplits.csv'):
+            self.sentencedata = pd.read_csv('sentencesplits.csv')
+        else:
+            self.preprocess_data()
+
         labels = self.sentencedata['label'].tolist()
 
         # extract train / test split - test data is in codalab!!
-        self.traindata,self.testdata,_,_ = train_test_split(self.sentencedata,labels,stratify=labels,test_size=0.05,random_state=42)
-        print ('wrong splits:' + str(counter))
+        self.traindata, self.testdata, _, _ = train_test_split(self.sentencedata, labels, stratify=labels,
+                                                               test_size=0.05, random_state=42)
 
 
 
@@ -169,7 +182,7 @@ def main():
     pclfile = 'data/dontpatronizeme_v1.4/dontpatronizeme_pcl.tsv'
     categoriesfile = None
     pcl = PreProcessing(pclfile,categoriesfile)
-    pcl.preprocess_data()
+    pcl.load_preprocessed_data()
     #pcl.get_maxlength()
     #print(pcl.maxlen)
 

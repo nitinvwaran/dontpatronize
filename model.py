@@ -5,6 +5,8 @@ import os,shutil
 import math
 
 from torch.utils.tensorboard import SummaryWriter
+from collections import OrderedDict
+from copy import  deepcopy
 from sklearn.metrics import f1_score, auc, roc_curve
 from transformers import RobertaTokenizer, RobertaModel
 from preprocessing import PreProcessing
@@ -42,8 +44,8 @@ class Model(nn.Module):
         self.bertmodel = RobertaWrapper()
         self.bertmodel.model.to(self.device)
 
-        self.maxlen = 67
-        self.linear1 = nn.Linear(768,64)
+        self.maxlen = 51
+        self.linear1 = nn.Linear(834,64)
         self.linear2 = nn.Linear(64,1)
 
         self.linear1.to(self.device)
@@ -51,11 +53,71 @@ class Model(nn.Module):
 
         self.relu = nn.ReLU()
 
-        self.transformerencoderlayer = torch.nn.TransformerEncoderLayer(d_model=768,nhead=8,batch_first=True)
-        self.posencoder = PositionalEncoding(d_model=768).to(self.device)
+        self.transformerencoderlayer = torch.nn.TransformerEncoderLayer(d_model=834,nhead=2,batch_first=True)
+        self.posencoder = PositionalEncoding(d_model=834).to(self.device)
         self.encoder = torch.nn.TransformerEncoder(self.transformerencoderlayer, num_layers=4).to(self.device)
 
         self.pooling = 'max' # or max
+
+        self.deprelfeats = {'nmod:npmod': 0, 'obl:npmod': 0, 'det:predet': 0, 'acl': 0, 'acl:relcl': 0, 'advcl': 0,
+                            'advmod': 0, 'advmod:emph': 0, 'advmod:lmod': 0, 'amod': 0, 'appos': 0, 'aux': 0,
+                            'aux:pass': 0, 'case': 0, 'cc': 0, 'cc:preconj': 0, 'ccomp': 0, 'clf': 0, 'compound': 0,
+                            'compound:lvc': 0, 'compound:prt': 0, 'compound:redup': 0, 'compound:svc': 0, 'conj': 0,
+                            'cop': 0, 'csubj': 0, 'csubj:pass': 0, 'dep': 0, 'det': 0, 'det:numgov': 0, 'det:nummod': 0,
+                            'det:poss': 0, 'discourse': 0, 'dislocated': 0, 'expl': 0, 'expl:impers': 0, 'expl:pass': 0,
+                            'expl:pv': 0, 'fixed': 0, 'flat': 0, 'flat:foreign': 0, 'flat:name': 0, 'goeswith': 0,
+                            'iobj': 0, 'list': 0, 'mark': 0, 'nmod': 0, 'nmod:poss': 0, 'nmod:tmod': 0, 'nsubj': 0,
+                            'nsubj:pass': 0, 'nummod': 0, 'nummod:gov': 0, 'obj': 0, 'obl': 0, 'obl:agent': 0,
+                            'obl:arg': 0, 'obl:lmod': 0, 'obl:tmod': 0, 'orphan': 0, 'parataxis': 0, 'punct': 0,
+                            'reparandum': 0, 'root': 0, 'vocative': 0, 'xcomp': 0}
+
+
+    def create_dep_vectors(self,sentences,deps):
+
+        newdeps = []
+
+        for i in range(0,len(sentences)):
+            tokenized = self.bertmodel.tokenizer.tokenize(sentences[i])
+            deptokens = deps[i].split()
+
+            newdeptokens = []
+            latesttoken = deptokens[0]
+            depindex = 0
+            for j in range(0,len(tokenized)):
+                if j == 0:
+                    newdeptokens.append(latesttoken)
+                else:
+                    if 'Ġ' in tokenized[j]:
+                        depindex += 1
+                        latesttoken = deptokens[depindex]
+                    newdeptokens.append(latesttoken)
+
+            assert len(tokenized) == len(newdeptokens)
+            newdeps.append(newdeptokens)
+
+        # now convert the BPE tokenized deps to one hot vectors
+        onehotdeps = []
+
+        for newdep in newdeps:
+            depvector = []
+            for dep in newdep:
+                onehot = deepcopy(self.deprelfeats)
+                onehot[dep] = 1
+                onehot = OrderedDict(sorted(onehot.items()))
+                onehot = list(onehot.values())
+
+                depvector.append(torch.IntTensor(onehot))
+
+            if len(newdep) >= self.maxlen:
+                depvector = depvector[:self.maxlen]
+            else:
+                for k in range(len(newdep),self.maxlen):
+                    onehot = deepcopy(self.deprelfeats)
+                    depvector.append(torch.IntTensor(list(onehot.values())))
+
+            onehotdeps.append(depvector)
+
+        return onehotdeps
 
 
 
@@ -63,13 +125,29 @@ class Model(nn.Module):
 
         try:
             data = [] # holds flattened sentences
+            depdata = []
 
             sentences = dataframe['splits'].tolist()
             lengths = dataframe['lengths'].tolist()
+            deps = dataframe['deps'].tolist()
 
             for sent in sentences:
-                s = sent.split('\t')
-                data.extend(s)
+                if str(sent).strip() != '':
+                    s = str(sent).split('\t')
+                    data.extend(s)
+
+            for dep in deps:
+                d = dep.split('\t')
+                depdata.extend(d)
+
+            onehotdeps = self.create_dep_vectors(data,depdata)
+            for i in range(0,len(onehotdeps)):
+                if i == 0:
+                    onehottensor = torch.unsqueeze(torch.stack(onehotdeps[i]),dim=0)
+                else:
+                    onehottensor = torch.cat((onehottensor,torch.unsqueeze(torch.stack(onehotdeps[i]),dim=0)),dim=0)
+
+            onehottensor = onehottensor.to(self.device)
 
 
             inp = self.bertmodel.tokenizer(data, max_length=self.maxlen, padding='max_length', truncation=True,add_special_tokens=False,return_tensors='pt')
@@ -79,14 +157,16 @@ class Model(nn.Module):
 
             output = self.bertmodel.model(**inp)
             lasthiddenstate = output['last_hidden_state']
+            lasthiddenstate.to(self.device)
+            concatvectors = torch.cat((lasthiddenstate,onehottensor),dim=2)
 
-            src = self.posencoder(lasthiddenstate)
-            feats = self.encoder(src)
+            src = self.posencoder(concatvectors)
+            feats = self.encoder(src,src_key_padding_mask = attentionmask)
 
             if self.pooling == 'max':
                 input_mask_expanded = attentionmask.unsqueeze(-1).expand(feats.size()).float()
-                lasthiddenstate[input_mask_expanded == 0] = -1e9  # Set padding tokens to large negative value
-                resultvectors = torch.max(lasthiddenstate, 1)[0]
+                concatvectors[input_mask_expanded == 0] = -1e9  # Set padding tokens to large negative value
+                resultvectors = torch.max(concatvectors, 1)[0]
             elif self.pooling == 'avg':
                 input_mask_expanded = attentionmask.unsqueeze(-1).expand(feats.size()).float()
                 sum_embeddings = torch.sum(feats * input_mask_expanded, 1)
@@ -135,7 +215,7 @@ class TrainEval():
 
         print ('Starting pre-processing')
         self.preprocess = PreProcessing(pclfile,categoryfile)
-        self.preprocess.preprocess_data()
+        self.preprocess.load_preprocessed_data()
         print('Completed preprocessing')
 
         self.model = Model()
@@ -154,8 +234,6 @@ class TrainEval():
 
         self.checkpointfile = 'data/checkpoint/model_v1.pt'
 
-
-
     def train_eval(self):
 
         torch.cuda.empty_cache()
@@ -166,7 +244,6 @@ class TrainEval():
 
         self.model.train()
         for epoch in range(1,self.epochs):
-
 
             possample = postraindata.sample(n=int(self.samplesize / 2))
             negsample = negtraindata.sample(n=int(self.samplesize / 2))
