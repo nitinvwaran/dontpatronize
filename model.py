@@ -45,19 +45,19 @@ class Model(nn.Module):
         self.bertmodel.model.to(self.device)
 
         self.maxlen = 51
-        self.linear1 = nn.Linear(834,64)
-        self.linear2 = nn.Linear(64,1)
+        self.linear1 = nn.Linear(768,128)
+        self.linear2 = nn.Linear(128,1)
 
         self.linear1.to(self.device)
         self.linear2.to(self.device)
 
         self.relu = nn.ReLU()
 
-        self.transformerencoderlayer = torch.nn.TransformerEncoderLayer(d_model=834,nhead=2,batch_first=True)
-        self.posencoder = PositionalEncoding(d_model=834).to(self.device)
+        self.transformerencoderlayer = torch.nn.TransformerEncoderLayer(d_model=768,nhead=8,batch_first=True)
+        self.posencoder = PositionalEncoding(d_model=768).to(self.device)
         self.encoder = torch.nn.TransformerEncoder(self.transformerencoderlayer, num_layers=4).to(self.device)
 
-        self.pooling = 'max' # or max
+        self.pooling = 'cls' # or max
 
         self.deprelfeats = {'nmod:npmod': 0, 'obl:npmod': 0, 'det:predet': 0, 'acl': 0, 'acl:relcl': 0, 'advcl': 0,
                             'advmod': 0, 'advmod:emph': 0, 'advmod:lmod': 0, 'amod': 0, 'appos': 0, 'aux': 0,
@@ -125,21 +125,22 @@ class Model(nn.Module):
 
         try:
             data = [] # holds flattened sentences
-            depdata = []
+            #depdata = []
 
             sentences = dataframe['splits'].tolist()
             lengths = dataframe['lengths'].tolist()
-            deps = dataframe['deps'].tolist()
+            #deps = dataframe['deps'].tolist()
 
             for sent in sentences:
                 if str(sent).strip() != '':
                     s = str(sent).split('\t')
                     data.extend(s)
 
-            for dep in deps:
-                d = dep.split('\t')
-                depdata.extend(d)
+            #for dep in deps:
+            #    d = dep.split('\t')
+            #    depdata.extend(d)
 
+            """
             onehotdeps = self.create_dep_vectors(data,depdata)
             for i in range(0,len(onehotdeps)):
                 if i == 0:
@@ -148,9 +149,10 @@ class Model(nn.Module):
                     onehottensor = torch.cat((onehottensor,torch.unsqueeze(torch.stack(onehotdeps[i]),dim=0)),dim=0)
 
             onehottensor = onehottensor.to(self.device)
+            """
 
 
-            inp = self.bertmodel.tokenizer(data, max_length=self.maxlen, padding='max_length', truncation=True,add_special_tokens=False,return_tensors='pt')
+            inp = self.bertmodel.tokenizer(data, max_length=self.maxlen, padding='max_length', truncation=True,add_special_tokens=True,return_tensors='pt')
             inp.to(self.device)
             inp['output_hidden_states'] = True
             attentionmask = inp['attention_mask']
@@ -158,21 +160,23 @@ class Model(nn.Module):
             output = self.bertmodel.model(**inp)
             lasthiddenstate = output['last_hidden_state']
             lasthiddenstate.to(self.device)
-            concatvectors = torch.cat((lasthiddenstate,onehottensor),dim=2)
+            #concatvectors = torch.cat((lasthiddenstate,onehottensor),dim=2)
 
-            src = self.posencoder(concatvectors)
+            src = self.posencoder(lasthiddenstate)
             feats = self.encoder(src,src_key_padding_mask = attentionmask)
 
             if self.pooling == 'max':
                 input_mask_expanded = attentionmask.unsqueeze(-1).expand(feats.size()).float()
-                concatvectors[input_mask_expanded == 0] = -1e9  # Set padding tokens to large negative value
-                resultvectors = torch.max(concatvectors, 1)[0]
+                lasthiddenstate[input_mask_expanded == 0] = -1e9  # Set padding tokens to large negative value
+                resultvectors = torch.max(lasthiddenstate, 1)[0]
             elif self.pooling == 'avg':
                 input_mask_expanded = attentionmask.unsqueeze(-1).expand(feats.size()).float()
                 sum_embeddings = torch.sum(feats * input_mask_expanded, 1)
                 sum_mask = input_mask_expanded.sum(1)
                 sum_mask = torch.clamp(sum_mask, min=1e-9)
                 resultvectors = sum_embeddings / sum_mask
+            elif self.pooling == 'cls':
+                resultvectors = feats[:,0]
 
 
             i = 0
@@ -278,8 +282,6 @@ class TrainEval():
             self.writer.add_scalar('train_f1',f1score,epoch)
             self.writer.add_scalar('train_auc',aucscore,epoch)
 
-            if epoch % 100 == 0:
-                torch.save(self.model.state_dict(),self.checkpointfile)
 
             if epoch % self.evalstep == 0: # run evaluation
                 torch.cuda.empty_cache()
@@ -323,14 +325,20 @@ class TrainEval():
                 splits = self.preprocess.testdata['splits'].tolist()
 
                 if f1score > devf1:
+                    devf1 = f1score
                     errors = pd.concat([pd.Series(lineids), pd.Series(splits), pd.Series(preds), pd.Series(labels)],
                                        axis=1, ignore_index=True)
-                    devf1 = f1score
-                    errors.to_csv('data/errors.csv',index=False)
+
+                    errors.columns = ['lineid','splits','preds','labels']
+                    errors = errors.set_index('lineid')
+                    errors = errors.loc[self.preprocess.devids]
+                    errors.to_csv('data/errors.csv')
+
+                    torch.save(self.model.state_dict(), self.checkpointfile)
 
                 self.model.train()
 
-        torch.save(self.model.state_dict(), self.checkpointfile)
+
 
 
 def main():

@@ -24,6 +24,8 @@ class PreProcessing():
         self.maxlen = 67
 
         self.nlp = stanza.Pipeline(lang='en',processors='tokenize,mwt,pos,lemma,depparse')
+        self.devids = []
+        self.devfile = 'data/dev_ids.txt'
 
 
     """
@@ -37,6 +39,13 @@ class PreProcessing():
         output = self.model(**inp)
         print(output)
     """
+
+    def get_devids(self):
+        with open(self.devfile,'r') as ds:
+            for line in ds.readlines():
+                line = int(line.split(',')[0])
+                self.devids.append(line)
+
 
     def get_maxlength(self):
 
@@ -169,11 +178,17 @@ class PreProcessing():
         else:
             self.preprocess_data()
 
-        labels = self.sentencedata['label'].tolist()
+        #labels = self.sentencedata['label'].tolist()
 
-        # extract train / test split - test data is in codalab!!
-        self.traindata, self.testdata, _, _ = train_test_split(self.sentencedata, labels, stratify=labels,
-                                                               test_size=0.05, random_state=42)
+        ## extract train / test split - test data is in codalab!!
+        #self.traindata, self.testdata, _, _ = train_test_split(self.sentencedata, labels, stratify=labels,
+                                                               #test_size=0.05, random_state=42)
+
+        self.get_devids()
+        mask = self.sentencedata['lineid'].isin(self.devids)
+        self.traindata = self.sentencedata.loc[~mask]
+        self.testdata = self.sentencedata.loc[mask]
+
 
 
 
