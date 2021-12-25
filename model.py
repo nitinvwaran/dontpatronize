@@ -36,6 +36,58 @@ class PositionalEncoding(nn.Module):
         #return self.dropout(x)
         return x
 
+
+
+class ModelRoberta(nn.Module):
+    def __init__(self):
+        super(ModelRoberta, self).__init__()
+
+        self.device = torch.device("cuda:0" if torch.cuda.is_available() else "cpu")
+        self.bertmodel = RobertaWrapper()
+        self.bertmodel.model.to(self.device)
+
+        self.linear1 = nn.Linear(768, 128)
+        self.linear2 = nn.Linear(128, 64)
+        self.linear3 = nn.Linear(64, 1)
+
+        self.linear1.to(self.device)
+        self.linear2.to(self.device)
+        self.linear3.to(self.device)
+
+        self.relu = nn.ReLU()
+
+        self.maxlen = 136
+
+    def forward(self,dataframe):
+
+        data = []
+        sentences = dataframe['splits'].tolist()
+
+        # flatten sentences
+        for sentence in sentences:
+            data.append(str(sentence).replace('\t',' '))
+
+        inp = self.bertmodel.tokenizer(data, max_length=self.maxlen, padding='max_length', truncation=True,
+                                       add_special_tokens=True, return_tensors='pt')
+        inp.to(self.device)
+        #inp['output_hidden_states'] = True
+        #attentionmask = inp['attention_mask']
+
+        output = self.bertmodel.model(**inp)
+        lasthiddenstate = output['last_hidden_state']
+        lasthiddenstate.to(self.device)
+
+        feats = lasthiddenstate[:,0]
+
+        logits = self.relu(self.linear1(feats))
+        logits = self.relu(self.linear2(logits))
+        logits = self.linear3(logits)
+
+        return logits
+
+
+
+
 class Model(nn.Module):
     def __init__(self):
         super(Model,self).__init__()
@@ -44,10 +96,10 @@ class Model(nn.Module):
         self.bertmodel = RobertaWrapper()
         self.bertmodel.model.to(self.device)
 
-        self.maxlen = 51
+
+        self.maxlen = 67
         self.linear1 = nn.Linear(768,128)
         self.linear2 = nn.Linear(128,1)
-
         self.linear1.to(self.device)
         self.linear2.to(self.device)
 
@@ -154,21 +206,21 @@ class Model(nn.Module):
 
             inp = self.bertmodel.tokenizer(data, max_length=self.maxlen, padding='max_length', truncation=True,add_special_tokens=True,return_tensors='pt')
             inp.to(self.device)
-            inp['output_hidden_states'] = True
+            #inp['output_hidden_states'] = True
             attentionmask = inp['attention_mask']
 
             output = self.bertmodel.model(**inp)
-            lasthiddenstate = output['last_hidden_state']
-            lasthiddenstate.to(self.device)
+            feats = output['last_hidden_state']
+            feats.to(self.device)
             #concatvectors = torch.cat((lasthiddenstate,onehottensor),dim=2)
 
-            src = self.posencoder(lasthiddenstate)
-            feats = self.encoder(src,src_key_padding_mask = attentionmask)
+            #src = self.posencoder(lasthiddenstate)
+            #feats = self.encoder(src,src_key_padding_mask = attentionmask)
 
             if self.pooling == 'max':
                 input_mask_expanded = attentionmask.unsqueeze(-1).expand(feats.size()).float()
-                lasthiddenstate[input_mask_expanded == 0] = -1e9  # Set padding tokens to large negative value
-                resultvectors = torch.max(lasthiddenstate, 1)[0]
+                feats[input_mask_expanded == 0] = -1e9  # Set padding tokens to large negative value
+                resultvectors = torch.max(feats, 1)[0]
             elif self.pooling == 'avg':
                 input_mask_expanded = attentionmask.unsqueeze(-1).expand(feats.size()).float()
                 sum_embeddings = torch.sum(feats * input_mask_expanded, 1)
@@ -192,6 +244,7 @@ class Model(nn.Module):
                 i += l
 
             assert squeezedvectors.size(dim=0) == len(dataframe)
+
 
             logits = self.relu(self.linear1(squeezedvectors))
             logits = self.linear2(logits)
@@ -223,6 +276,7 @@ class TrainEval():
         print('Completed preprocessing')
 
         self.model = Model()
+        #self.model = ModelRoberta()
 
         self.loss = nn.BCEWithLogitsLoss()
         self.loss.to(self.device)
@@ -236,15 +290,15 @@ class TrainEval():
 
         self.evalstep = 20
 
-        self.checkpointfile = 'data/checkpoint/model_v1.pt'
+        self.checkpointfile = 'data/checkpoint/model_v2.pt'
 
-    def train_eval(self):
+    def train_eval(self,labeltype):
 
         torch.cuda.empty_cache()
 
         devf1 = float('-inf')
-        postraindata = self.preprocess.traindata.loc[self.preprocess.traindata['label'] == 1]
-        negtraindata = self.preprocess.traindata.loc[self.preprocess.traindata['label'] == 0]
+        postraindata = self.preprocess.traindata.loc[self.preprocess.traindata[labeltype] == 1]
+        negtraindata = self.preprocess.traindata.loc[self.preprocess.traindata[labeltype] == 0]
 
         self.model.train()
         for epoch in range(1,self.epochs):
@@ -258,7 +312,7 @@ class TrainEval():
 
             logits = self.model(sample)
 
-            labels = sample['label'].tolist()
+            labels = sample[labeltype].tolist()
             labels = torch.unsqueeze(torch.FloatTensor(labels),1)
             labels = labels.to(self.device)
 
@@ -290,14 +344,16 @@ class TrainEval():
                 with torch.no_grad():
                     preds = []
                     probs = []
-                    labels = self.preprocess.testdata['label'].tolist()
+                    labels = self.preprocess.testdata[labeltype].tolist()
 
                     devloss = 0
                     for j in range(0,len(self.preprocess.testdata)):
                         df = self.preprocess.testdata.iloc[[j]]
+
                         logit = self.model(df)
 
-                        label = df['label'].tolist()
+
+                        label = df[labeltype].tolist()
                         label = torch.unsqueeze(torch.FloatTensor(label),1)
                         label = label.to(self.device)
 
@@ -329,7 +385,8 @@ class TrainEval():
                     errors = pd.concat([pd.Series(lineids), pd.Series(splits), pd.Series(preds), pd.Series(labels)],
                                        axis=1, ignore_index=True)
 
-                    errors.columns = ['lineid','splits','preds','labels']
+                    errors.columns = ['lineid','splits','preds']
+                    errors.columns.append(labeltype)
                     errors = errors.set_index('lineid')
                     errors = errors.loc[self.preprocess.devids]
                     errors.to_csv('data/errors.csv')
@@ -346,7 +403,8 @@ def main():
     categoriesfile = None
 
     traineval = TrainEval(pclfile,categoriesfile)
-    traineval.train_eval()
+    labeltypes = ['unbalanced_power','shallowsolution','presupposition','authorityvoice','metaphor','compassion','poorermerrier']
+    traineval.train_eval(labeltypes[0])
 
 if __name__ == "__main__":
     main()

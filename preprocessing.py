@@ -117,6 +117,8 @@ class PreProcessing():
                     splits = [s.strip() for s in splits if s]
                     splits = [s for s in splits if len(s.split()) >= 2]
 
+                    # features go here
+                    theytokens = []
 
                     if len(splits) > 0:
                         alltokens = []
@@ -132,10 +134,13 @@ class PreProcessing():
                                         maxlen = len(sent.words)
                                         tokens = [w.text for w in sent.words]
                                         deps = [w.deprel for w in sent.words]
+                                        theytokens.extend([t for t in tokens if t.strip() in ['they','them','those','their','theirs']])
 
                             elif len(doc.sentences) == 1:
                                 tokens = [w.text for w in doc.sentences[0].words]
                                 deps = [w.deprel for w in doc.sentences[0].words]
+                                theytokens.extend(
+                                    [t for t in tokens if t.strip() in ['they', 'them', 'those', 'their', 'theirs']])
 
                             alltokens.append(' '.join(tokens))
                             alldeps.append(' '.join(deps))
@@ -143,28 +148,37 @@ class PreProcessing():
                         assert len(alltokens) == len(splits)
                         assert len(alldeps) == len(alltokens)
 
+                        theytokenscount = len(theytokens) / len([w for sent in alltokens for w in sent.strip(' ')])
+
                         if len(splits) > 40:
                             alltokens = alltokens[len(alltokens) // 2:] # discard first half of splits
                             alldeps = alldeps[len(alldeps) // 2: ]
+
 
                         datum.append(lineid)
                         datum.append('\t'.join(alltokens))
                         datum.append('\t'.join(alldeps))
                         datum.append(len(alltokens))
+                        datum.append(theytokenscount)
                         datum.append(label)
 
                         listdata.append(datum)
                     else:
                         datum.append(lineid)
                         d = self.nlp(line.lower().strip())
+
+                        x = [w.text for sent in d.sentences for w in sent.words]
+                        theytokens.extend([t for t in x if t.strip() in ['they', 'them', 'those', 'their', 'theirs']])
+
                         datum.append(' '.join([w.text for sent in d.sentences for w in sent.words]))
                         datum.append(' '.join([w.deprel for sent in d.sentences for w in sent.words]))
                         datum.append(1)
+                        datum.append(len(theytokens) / len(x))
                         datum.append(label)
 
                         listdata.append(datum)
 
-        self.sentencedata = pd.DataFrame(listdata,columns=['lineid','splits','deps','lengths','label'])
+        self.sentencedata = pd.DataFrame(listdata,columns=['lineid','splits','deps','lengths','theytokens','label'])
         print('paragraphs processed:' + str(len(self.sentencedata)))
         self.sentencedata.to_csv('sentencesplits.csv',index=False)
 
@@ -173,21 +187,33 @@ class PreProcessing():
 
 
     def load_preprocessed_data(self):
+
+
+        refinedlabelstrain = pd.read_csv('refinedlabelstrain.csv')
+        refinedlabelstrain.set_index('lineid')
+
+        refinedlabelsdev = pd.read_csv('refinedlabelsdev.csv')
+        refinedlabelsdev.set_index('lineid')
+
         if os.path.exists('sentencesplits.csv'):
             self.sentencedata = pd.read_csv('sentencesplits.csv')
         else:
             self.preprocess_data()
 
-        #labels = self.sentencedata['label'].tolist()
-
-        ## extract train / test split - test data is in codalab!!
-        #self.traindata, self.testdata, _, _ = train_test_split(self.sentencedata, labels, stratify=labels,
-                                                               #test_size=0.05, random_state=42)
-
         self.get_devids()
         mask = self.sentencedata['lineid'].isin(self.devids)
         self.traindata = self.sentencedata.loc[~mask]
         self.testdata = self.sentencedata.loc[mask]
+
+        self.traindata.set_index('lineid')
+        self.testdata.set_index('lineid')
+
+        self.traindata = self.traindata.merge(refinedlabelstrain, how='inner',on='lineid')
+        self.testdata = self.testdata.merge(refinedlabelsdev, how='inner',on='lineid')
+
+
+
+
 
 
 
