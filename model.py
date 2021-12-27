@@ -10,6 +10,7 @@ from copy import  deepcopy
 from sklearn.metrics import f1_score, auc, roc_curve
 from transformers import RobertaTokenizer, RobertaModel
 from preprocessing import PreProcessing
+from nltk.corpus import stopwords
 
 torch.backends.cudnn.deterministic = True
 
@@ -49,24 +50,25 @@ class ModelRobertaCNN(nn.Module):
         self.relu = nn.ReLU()
 
         self.dropout = nn.Dropout()
+        self.stopwords = set(stopwords.words('english'))
 
         self.maxlen = 136
 
-        self.conv1 =nn.Conv1d(768,256,5)
+        self.conv1 =nn.Conv1d(768,512,7)
         self.conv1.to(self.device)
-        self.pool1 = nn.MaxPool1d(3)
+        self.pool1 = nn.MaxPool1d(5)
         self.pool1.to(self.device)
-        self.conv2 = nn.Conv1d(256, 128, 5)
+        self.conv2 = nn.Conv1d(512, 256, 5)
         self.conv2.to(self.device)
         self.pool2 = nn.MaxPool1d(3)
         self.pool2.to(self.device)
-        self.conv3 = nn.Conv1d(128, 64, 5)
+        self.conv3 = nn.Conv1d(256, 128, 5)
         self.conv3.to(self.device)
         self.pool3 = nn.MaxPool1d(3)
         self.pool3.to(self.device)
 
-        self.linear1 = nn.Linear(192, 64)
-        self.linear2 = nn.Linear(64, 1)
+        self.linear1 = nn.Linear(128, 32)
+        self.linear2 = nn.Linear(32, 1)
 
         self.linear1.to(self.device)
         self.linear2.to(self.device)
@@ -80,7 +82,9 @@ class ModelRobertaCNN(nn.Module):
 
         # flatten sentences
         for sentence in sentences:
-            data.append(str(sentence).replace('\t', ' '))
+            s = str(sentence).replace('\t', ' . ')
+            s = ' '.join([t for t in s.split(' ') if t not in self.stopwords])
+            data.append(s)
 
         inp = self.bertmodel.tokenizer(data, max_length=self.maxlen, padding='max_length', truncation=True,
                                        add_special_tokens=True, return_tensors='pt')
@@ -102,6 +106,7 @@ class ModelRobertaCNN(nn.Module):
         feats = self.pool2(feats)
         feats = self.conv3(feats)
         feats = self.pool3(feats)
+
         feats = feats.reshape(self.batchlen,-1)
 
         feats = self.relu(self.linear1(feats))
@@ -130,6 +135,7 @@ class ModelRoberta(nn.Module):
         self.relu = nn.ReLU()
 
         self.maxlen = 136
+        self.stopwords = set(stopwords.words('english'))
 
     def forward(self,dataframe):
 
@@ -138,7 +144,9 @@ class ModelRoberta(nn.Module):
 
         # flatten sentences
         for sentence in sentences:
-            data.append(str(sentence).replace('\t',' '))
+            s = str(sentence).replace('\t', ' . ')
+            s = ' '.join([t for t in s.split(' ') if t not in self.stopwords])
+            data.append(s)
 
         inp = self.bertmodel.tokenizer(data, max_length=self.maxlen, padding='max_length', truncation=True,
                                        add_special_tokens=True, return_tensors='pt')
@@ -501,7 +509,7 @@ def main():
 
     traineval = TrainEval(pclfile,categoriesfile)
     labeltypes = ['label','unbalanced_power','shallowsolution','presupposition','authorityvoice','metaphor','compassion','poorermerrier']
-    traineval.train_eval(labeltypes[0])
+    traineval.train_eval(labeltypes[1])
 
 if __name__ == "__main__":
     main()

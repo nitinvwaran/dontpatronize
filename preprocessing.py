@@ -123,6 +123,8 @@ class PreProcessing():
                     if len(splits) > 0:
                         alltokens = []
                         alldeps = []
+                        allpos = []
+                        allfeats = []
 
                         for split in splits:
                             doc = self.nlp(split)
@@ -134,30 +136,44 @@ class PreProcessing():
                                         maxlen = len(sent.words)
                                         tokens = [w.text for w in sent.words]
                                         deps = [w.deprel for w in sent.words]
+                                        pos = [w.xpos for w in sent.words]
+                                        feats = [w.feats for w in sent.words]
+                                        feats = [f if f is not None else '_' for f in feats]
                                         theytokens.extend([t for t in tokens if t.strip() in ['they','them','those','their','theirs']])
 
                             elif len(doc.sentences) == 1:
                                 tokens = [w.text for w in doc.sentences[0].words]
                                 deps = [w.deprel for w in doc.sentences[0].words]
+                                pos = [w.xpos for w in doc.sentences[0].words]
+                                feats = [w.feats for w in doc.sentences[0].words]
+                                feats = [f if f is not None else '_' for f in feats ]
                                 theytokens.extend(
                                     [t for t in tokens if t.strip() in ['they', 'them', 'those', 'their', 'theirs']])
 
                             alltokens.append(' '.join(tokens))
                             alldeps.append(' '.join(deps))
+                            allpos.append(' '.join(pos))
+                            allfeats.append(' '.join(feats))
 
                         assert len(alltokens) == len(splits)
                         assert len(alldeps) == len(alltokens)
+                        assert len(allpos) == len(alldeps)
+                        assert len(allfeats) == len(allpos)
 
                         theytokenscount = len(theytokens) / len([w for sent in alltokens for w in sent.strip(' ')])
 
                         if len(splits) > 40:
                             alltokens = alltokens[len(alltokens) // 2:] # discard first half of splits
                             alldeps = alldeps[len(alldeps) // 2: ]
+                            allpos = allpos[len(allpos) // 2:]
+                            allfeats = allfeats[len(allpos) // 2:]
 
 
                         datum.append(lineid)
                         datum.append('\t'.join(alltokens))
                         datum.append('\t'.join(alldeps))
+                        datum.append('\t'.join(allpos))
+                        datum.append('\t'.join(allfeats))
                         datum.append(len(alltokens))
                         datum.append(theytokenscount)
                         datum.append(label)
@@ -172,13 +188,15 @@ class PreProcessing():
 
                         datum.append(' '.join([w.text for sent in d.sentences for w in sent.words]))
                         datum.append(' '.join([w.deprel for sent in d.sentences for w in sent.words]))
+                        datum.append(' '.join([w.xpos for sent in d.sentences for w in sent.words]))
+                        datum.append(' '.join([w.feats for sent in d.sentences for w in sent.words]))
                         datum.append(1)
                         datum.append(len(theytokens) / len(x))
                         datum.append(label)
 
                         listdata.append(datum)
 
-        self.sentencedata = pd.DataFrame(listdata,columns=['lineid','splits','deps','lengths','theytokens','label'])
+        self.sentencedata = pd.DataFrame(listdata,columns=['lineid','splits','deps','xpos','feats','lengths','theytokens','label'])
         print('paragraphs processed:' + str(len(self.sentencedata)))
         self.sentencedata.to_csv('sentencesplits.csv',index=False)
 
