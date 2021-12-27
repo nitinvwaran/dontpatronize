@@ -11,6 +11,8 @@ from sklearn.metrics import f1_score, auc, roc_curve
 from transformers import RobertaTokenizer, RobertaModel
 from preprocessing import PreProcessing
 
+torch.backends.cudnn.deterministic = True
+
 
 class RobertaWrapper():
     def __init__(self):
@@ -36,6 +38,77 @@ class PositionalEncoding(nn.Module):
         #return self.dropout(x)
         return x
 
+class ModelRobertaCNN(nn.Module):
+    def __init__(self):
+        super(ModelRobertaCNN, self).__init__()
+
+        self.device = torch.device("cuda:0" if torch.cuda.is_available() else "cpu")
+        self.bertmodel = RobertaWrapper()
+        self.bertmodel.model.to(self.device)
+
+        self.relu = nn.ReLU()
+
+        self.dropout = nn.Dropout()
+
+        self.maxlen = 136
+
+        self.conv1 =nn.Conv1d(768,256,5)
+        self.conv1.to(self.device)
+        self.pool1 = nn.MaxPool1d(3)
+        self.pool1.to(self.device)
+        self.conv2 = nn.Conv1d(256, 128, 5)
+        self.conv2.to(self.device)
+        self.pool2 = nn.MaxPool1d(3)
+        self.pool2.to(self.device)
+        self.conv3 = nn.Conv1d(128, 64, 5)
+        self.conv3.to(self.device)
+        self.pool3 = nn.MaxPool1d(3)
+        self.pool3.to(self.device)
+
+        self.linear1 = nn.Linear(192, 64)
+        self.linear2 = nn.Linear(64, 1)
+
+        self.linear1.to(self.device)
+        self.linear2.to(self.device)
+        self.batchlen = 16
+
+
+    def forward(self,dataframe):
+
+        data = []
+        sentences = dataframe['splits'].tolist()
+
+        # flatten sentences
+        for sentence in sentences:
+            data.append(str(sentence).replace('\t', ' '))
+
+        inp = self.bertmodel.tokenizer(data, max_length=self.maxlen, padding='max_length', truncation=True,
+                                       add_special_tokens=True, return_tensors='pt')
+        inp.to(self.device)
+        # inp['output_hidden_states'] = True
+        # attentionmask = inp['attention_mask']
+
+        output = self.bertmodel.model(**inp)
+        lasthiddenstate = output['last_hidden_state']
+        lasthiddenstate.to(self.device)
+
+        lasthiddenstate = lasthiddenstate.transpose(1,2)
+        #lasthiddenstate = self.dropout(lasthiddenstate)
+
+        # now CNN
+        feats = self.conv1(lasthiddenstate)
+        feats = self.pool1(feats)
+        feats = self.conv2(feats)
+        feats = self.pool2(feats)
+        feats = self.conv3(feats)
+        feats = self.pool3(feats)
+        feats = feats.reshape(self.batchlen,-1)
+
+        feats = self.relu(self.linear1(feats))
+        feats = self.dropout(feats)
+        logits = self.linear2(feats)
+
+        return logits
 
 
 class ModelRoberta(nn.Module):
@@ -77,7 +150,10 @@ class ModelRoberta(nn.Module):
         lasthiddenstate = output['last_hidden_state']
         lasthiddenstate.to(self.device)
 
+
         feats = lasthiddenstate[:,0]
+
+
 
         logits = self.relu(self.linear1(feats))
         logits = self.relu(self.linear2(logits))
@@ -231,15 +307,32 @@ class Model(nn.Module):
                 resultvectors = feats[:,0]
 
 
+
+            """
             i = 0
             for l in lengths:
                 if i == 0:
+
                     squeezedvectors = torch.max(resultvectors[i:i + l,:],0)[0]
                     squeezedvectors = torch.unsqueeze(squeezedvectors,0)
                 else:
                     temp = torch.max(resultvectors[i:i + l, :], 0)[0]
                     temp = torch.unsqueeze(temp, 0)
                     squeezedvectors = torch.cat((squeezedvectors,temp),0)
+
+                i += l
+            """
+
+            i = 0
+            for l in lengths:
+                if i == 0:
+
+                    squeezedvectors = torch.mean(resultvectors[i:i + l, :], 0)
+                    squeezedvectors = torch.unsqueeze(squeezedvectors, 0)
+                else:
+                    temp = torch.mean(resultvectors[i:i + l, :], 0)
+                    temp = torch.unsqueeze(temp, 0)
+                    squeezedvectors = torch.cat((squeezedvectors, temp), 0)
 
                 i += l
 
@@ -275,8 +368,10 @@ class TrainEval():
         self.preprocess.load_preprocessed_data()
         print('Completed preprocessing')
 
-        self.model = Model()
+        #self.model = Model()
         #self.model = ModelRoberta()
+        self.model = ModelRobertaCNN()
+
 
         self.loss = nn.BCEWithLogitsLoss()
         self.loss.to(self.device)
@@ -290,13 +385,12 @@ class TrainEval():
 
         self.evalstep = 20
 
-        self.checkpointfile = 'data/checkpoint/model_v2.pt'
+        self.checkpointfile = 'data/checkpoint/model.pt'
 
     def train_eval(self,labeltype):
 
         torch.cuda.empty_cache()
 
-        devf1 = float('-inf')
         postraindata = self.preprocess.traindata.loc[self.preprocess.traindata[labeltype] == 1]
         negtraindata = self.preprocess.traindata.loc[self.preprocess.traindata[labeltype] == 0]
 
@@ -340,6 +434,7 @@ class TrainEval():
             if epoch % self.evalstep == 0: # run evaluation
                 torch.cuda.empty_cache()
                 self.model.eval()
+                self.model.batchlen = 1
 
                 with torch.no_grad():
                     preds = []
@@ -380,19 +475,21 @@ class TrainEval():
                 lineids = self.preprocess.testdata['lineid'].tolist()
                 splits = self.preprocess.testdata['splits'].tolist()
 
-                if f1score > devf1:
-                    devf1 = f1score
+                if epoch % 50 == 0:
                     errors = pd.concat([pd.Series(lineids), pd.Series(splits), pd.Series(preds), pd.Series(labels)],
                                        axis=1, ignore_index=True)
 
-                    errors.columns = ['lineid','splits','preds']
-                    errors.columns.append(labeltype)
+                    cols = ['lineid','splits','preds']
+                    cols.append(labeltype)
+                    errors.columns = cols
+
                     errors = errors.set_index('lineid')
                     errors = errors.loc[self.preprocess.devids]
                     errors.to_csv('data/errors.csv')
 
-                    torch.save(self.model.state_dict(), self.checkpointfile)
+                    torch.save(self.model.state_dict(), self.checkpointfile.replace('.pt','_' + labeltype + '.pt'))
 
+                self.model.batchlen = 16
                 self.model.train()
 
 
@@ -403,7 +500,7 @@ def main():
     categoriesfile = None
 
     traineval = TrainEval(pclfile,categoriesfile)
-    labeltypes = ['unbalanced_power','shallowsolution','presupposition','authorityvoice','metaphor','compassion','poorermerrier']
+    labeltypes = ['label','unbalanced_power','shallowsolution','presupposition','authorityvoice','metaphor','compassion','poorermerrier']
     traineval.train_eval(labeltypes[0])
 
 if __name__ == "__main__":
