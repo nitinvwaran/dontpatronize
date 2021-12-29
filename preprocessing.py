@@ -81,6 +81,8 @@ class PreProcessing():
                         label = 1
 
                     lineid = int(line.split('\t')[0])
+                    category = line.split('\t')[2].strip()
+                    category = category.replace('-',' ')
 
                     line = line.split('\t')[4]
                     line = line.replace('&amp;',' and ').replace('&apos;','').replace('&gt;','').replace('&lt;','').replace('&quot;','"')
@@ -176,6 +178,7 @@ class PreProcessing():
                         datum.append('\t'.join(allfeats))
                         datum.append(len(alltokens))
                         datum.append(theytokenscount)
+                        datum.append(category)
                         datum.append(label)
 
                         listdata.append(datum)
@@ -192,11 +195,12 @@ class PreProcessing():
                         datum.append(' '.join([w.feats for sent in d.sentences for w in sent.words]))
                         datum.append(1)
                         datum.append(len(theytokens) / len(x))
+                        datum.append(category)
                         datum.append(label)
 
                         listdata.append(datum)
 
-        self.sentencedata = pd.DataFrame(listdata,columns=['lineid','splits','deps','xpos','feats','lengths','theytokens','label'])
+        self.sentencedata = pd.DataFrame(listdata,columns=['lineid','splits','deps','xpos','feats','lengths','theytokens','category','label'])
         print('paragraphs processed:' + str(len(self.sentencedata)))
         self.sentencedata.to_csv('sentencesplits.csv',index=False)
 

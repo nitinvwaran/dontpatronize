@@ -145,7 +145,7 @@ class ModelRoberta(nn.Module):
         # flatten sentences
         for sentence in sentences:
             s = str(sentence).replace('\t', ' . ')
-            s = ' '.join([t for t in s.split(' ') if t not in self.stopwords])
+            #s = ' '.join([t for t in s.split(' ') if t not in self.stopwords])
             data.append(s)
 
         inp = self.bertmodel.tokenizer(data, max_length=self.maxlen, padding='max_length', truncation=True,
@@ -377,8 +377,8 @@ class TrainEval():
         print('Completed preprocessing')
 
         #self.model = Model()
-        #self.model = ModelRoberta()
-        self.model = ModelRobertaCNN()
+        self.model = ModelRoberta()
+        #self.model = ModelRobertaCNN()
 
 
         self.loss = nn.BCEWithLogitsLoss()
@@ -509,7 +509,7 @@ def main():
 
     traineval = TrainEval(pclfile,categoriesfile)
     labeltypes = ['label','unbalanced_power','shallowsolution','presupposition','authorityvoice','metaphor','compassion','poorermerrier']
-    traineval.train_eval(labeltypes[1])
+    traineval.train_eval(labeltypes[5])
 
 if __name__ == "__main__":
     main()
