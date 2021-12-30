@@ -222,6 +222,8 @@ class PreProcessing():
         else:
             self.preprocess_data()
 
+        self.sentencedata.drop(['deps','xpos','feats','theytokens','category'],axis=1,inplace=True)
+
         self.get_devids()
         mask = self.sentencedata['lineid'].isin(self.devids)
         self.traindata = self.sentencedata.loc[~mask]
@@ -232,6 +234,16 @@ class PreProcessing():
 
         self.traindata = self.traindata.merge(refinedlabelstrain, how='inner',on='lineid')
         self.testdata = self.testdata.merge(refinedlabelsdev, how='inner',on='lineid')
+
+        trainfeatures = pd.read_csv('train_features.csv')
+        testfeatures = pd.read_csv('test_features.csv')
+
+        trainfeatures.set_index('lineid')
+        testfeatures.set_index('lineid')
+
+        self.traindata = self.traindata.merge(trainfeatures,how='inner',on='lineid')
+        self.testdata = self.testdata.merge(testfeatures,how='inner',on='lineid')
+        print ('Finished merging')
 
 
 

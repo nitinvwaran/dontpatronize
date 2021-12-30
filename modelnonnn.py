@@ -80,9 +80,14 @@ def read_sentiment_lexicon():
             synsets = line[4].split(' ')
             synsets = [s[:-2] for s in synsets]
             for syn in synsets:
-                sentimentlexicon[syn] = {}
-                sentimentlexicon[syn]['pos'] = float(line[2])
-                sentimentlexicon[syn]['neg'] = float(line[3])
+                if syn not in sentimentlexicon.keys():
+                    sentimentlexicon[syn] = {}
+                    sentimentlexicon[syn]['pos'] = float(line[2])
+                    sentimentlexicon[syn]['neg'] = float(line[3])
+                else:
+                    sentimentlexicon[syn]['pos'] += float(line[2])
+                    sentimentlexicon[syn]['neg'] += float(line[3])
+
 
 def get_devids():
     with open(devfile,'r') as ds:
@@ -113,6 +118,23 @@ def load_preprocessed_data():
     testdata = testdata.merge(refinedlabelsdev, how='inner',on='lineid')
 
     return traindata,testdata
+
+def count_authority_tokens(dataframe):
+
+    tokens = []
+    for _,row in dataframe.iterrows():
+        if int(row['authorityvoice']) == 1:
+            splits = str(row['splits']).replace('\t',' . ')
+            splits = splits.split(' ')
+            tokens.extend(splits)
+
+    counts = dict(Counter(tokens))
+    with open('authoritytokens.csv','w') as aut:
+        for k,v in counts.items():
+            if k.strip() != '':
+                aut.write(str(k.strip()) + ',' + str(v) + '\n')
+
+
 
 def build_features(dataframe):
 
@@ -250,7 +272,7 @@ def build_features(dataframe):
             if word.strip() in subjectivelexicon:
                 depcounts['subjectivewords'] += 1
 
-            if word.strip() in ['must','should','ought']:
+            if word.strip() in ['must','should','ought','obliged','obligated']:
                 depcounts['authoritytokens'] += 1
 
 
@@ -330,6 +352,7 @@ def build_dataframes_run_models():
     get_devids()
     traindata,testdata = load_preprocessed_data()
 
+    #count_authority_tokens(traindata)
     trainfeatures = build_features(traindata)
     traindatadf = pd.DataFrame.from_dict(data = trainfeatures,orient='index')
 
@@ -337,7 +360,10 @@ def build_dataframes_run_models():
     testdatadf = pd.DataFrame.from_dict(data=testfeatures,orient='index')
 
     trainlabels = traindatadf['label'].tolist()
-    traindatadf.drop(['splits','lineid','label'],axis=1,inplace=True)
+    traindatadf = traindatadf.set_index('lineid')
+    traindatadf.drop(['splits','label'],axis=1,inplace=True)
+
+    traindatadf.to_csv('train_features.csv')
 
     testlabels = testdatadf[['lineid','label','splits']]
     testdatadf = testdatadf.set_index('lineid')
@@ -346,10 +372,14 @@ def build_dataframes_run_models():
     testlabels = testlabels.loc[devids]
     testdatadf.drop(['label','splits'],axis=1,inplace=True)
 
+    testdatadf.to_csv('test_features.csv')
+
     clf = svm.SVC(class_weight={1:10,0:1},random_state=43,C=1)
     clf.fit(traindatadf,trainlabels)
 
     preds = clf.predict(testdatadf)
+    predstrain = clf.predict(traindatadf)
+
     labs = testlabels['label'].tolist()
     testdatadf['preds'] = preds
     testdatadf['splits'] = testlabels['splits'].tolist()
@@ -357,9 +387,15 @@ def build_dataframes_run_models():
 
     testdatadf.to_csv('error_svc.csv')
 
+
     print(f1_score(labs,preds))
     print(precision_score(labs,preds))
     print(recall_score(labs, preds))
+
+    print(f1_score(trainlabels,predstrain))
+    print(precision_score(trainlabels, predstrain))
+    print(recall_score(trainlabels, predstrain))
+
 
 
 

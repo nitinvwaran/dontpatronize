@@ -39,12 +39,22 @@ class PositionalEncoding(nn.Module):
         #return self.dropout(x)
         return x
 
+class ModelLSTMAttn():
+    def __init__(self):
+        super(ModelLSTMAttn,self).__init__()
+
+
+
 class ModelRobertaCNN(nn.Module):
     def __init__(self):
         super(ModelRobertaCNN, self).__init__()
 
         self.device = torch.device("cuda:0" if torch.cuda.is_available() else "cpu")
         self.bertmodel = RobertaWrapper()
+
+        for param in self.bertmodel.model.parameters():
+            param.requires_grad = False
+
         self.bertmodel.model.to(self.device)
 
         self.relu = nn.ReLU()
@@ -52,26 +62,34 @@ class ModelRobertaCNN(nn.Module):
         self.dropout = nn.Dropout()
         self.stopwords = set(stopwords.words('english'))
 
-        self.maxlen = 136
+        self.maxlen = 256
 
-        self.conv1 =nn.Conv1d(768,512,7)
+        self.conv1 =nn.Conv1d(768,256,9)
         self.conv1.to(self.device)
-        self.pool1 = nn.MaxPool1d(5)
+        self.pool1 = nn.MaxPool1d(self.maxlen // 3)
         self.pool1.to(self.device)
-        self.conv2 = nn.Conv1d(512, 256, 5)
+
+        self.conv2 = nn.Conv1d(768, 256, 7)
         self.conv2.to(self.device)
-        self.pool2 = nn.MaxPool1d(3)
+        self.pool2 = nn.MaxPool1d(self.maxlen // 5)
         self.pool2.to(self.device)
-        self.conv3 = nn.Conv1d(256, 128, 5)
+
+        self.conv3 = nn.Conv1d(768, 256, 5)
         self.conv3.to(self.device)
-        self.pool3 = nn.MaxPool1d(3)
+        self.pool3 = nn.MaxPool1d(self.maxlen // 7)
         self.pool3.to(self.device)
 
-        self.linear1 = nn.Linear(128, 32)
-        self.linear2 = nn.Linear(32, 1)
+        self.conv4 = nn.Conv1d(768, 256, 3)
+        self.conv4.to(self.device)
+        self.pool4 = nn.MaxPool1d(self.maxlen // 9)
+        self.pool4.to(self.device)
 
+        self.convavg = nn.AvgPool1d(21)
+
+        self.linear1 = nn.Linear(256, 2)
+        #self.linear2 = nn.Linear(64, 2)
         self.linear1.to(self.device)
-        self.linear2.to(self.device)
+        #self.linear2.to(self.device)
         self.batchlen = 16
 
 
@@ -80,14 +98,18 @@ class ModelRobertaCNN(nn.Module):
         data = []
         sentences = dataframe['splits'].tolist()
 
+        features = dataframe[['nmod:npmod','obl:npmod','det:predet','acl','acl:relcl','advcl','advmod','advmod:emph','advmod:lmod','amod','appos','aux','aux:pass','case','cc','cc:preconj','ccomp','clf','compound','compound:lvc','compound:prt','compound:redup','compound:svc','conj','cop','csubj','csubj:pass','dep','det','det:numgov','det:nummod','det:poss','discourse','dislocated','expl','expl:impers','expl:pass','expl:pv','fixed','flat','flat:foreign','flat:name','goeswith','iobj','list','mark','nmod','nmod:poss','nmod:tmod','nsubj','nsubj:pass','nummod','nummod:gov','obj','obl','obl:agent','obl:arg','obl:lmod','obl:tmod','orphan','parataxis','punct','reparandum','root','vocative','xcomp','subjectivity','positive','negative','subjectivewords','authoritytokens','CC','CD','DT','EX','FW','IN','JJ','JJR','JJS','LS','MD','NN','NNS','NNP','NNPS','PDT','POS','PRP','PRP$','RB','RBR','RBS','RP','SYM','TO','UH','VB','VBD','VBG','VBN','VBP','VBZ','WDT','WP','WP$','WRB','COMMA','HYPH','.','``','TWOQUOT','$','-RRB-','-LRB-',':','NFP','ADD','AFX','ind','cnd','imp','pot','sub','jus','prp','qot','opt','des','nec','irr','adm','conv','fin','gdv','ger','inf','part','sup','vnoun','fut','past','pqp','pres','CC_category','CD_category','DT_category','EX_category','FW_category','IN_category','JJ_category','JJR_category','JJS_category','LS_category','MD_category','NN_category','NNS_category','NNP_category','NNPS_category','PDT_category','POS_category','PRP_category','PRP$_category','RB_category','RBR_category','RBS_category','RP_category','SYM_category','TO_category','UH_category','VB_category','VBD_category','VBG_category','VBN_category','VBP_category','VBZ_category','WDT_category','WP_category','WP$_category','WRB_category','COMMA_category','HYPH_category','._category','``_category','TWOQUOT_category','$_category','-RRB-_category','-LRB-_category',':_category','NFP_category','ADD_category','AFX_category']]
+        features = torch.FloatTensor(features.values)
+        features = features.to(self.device)
+
         # flatten sentences
         for sentence in sentences:
             s = str(sentence).replace('\t', ' . ')
-            s = ' '.join([t for t in s.split(' ') if t not in self.stopwords])
+            #s = ' '.join([t for t in s.split(' ') if t not in self.stopwords])
             data.append(s)
 
         inp = self.bertmodel.tokenizer(data, max_length=self.maxlen, padding='max_length', truncation=True,
-                                       add_special_tokens=True, return_tensors='pt')
+                                       add_special_tokens=False, return_tensors='pt')
         inp.to(self.device)
         # inp['output_hidden_states'] = True
         # attentionmask = inp['attention_mask']
@@ -100,18 +122,29 @@ class ModelRobertaCNN(nn.Module):
         #lasthiddenstate = self.dropout(lasthiddenstate)
 
         # now CNN
-        feats = self.conv1(lasthiddenstate)
-        feats = self.pool1(feats)
-        feats = self.conv2(feats)
-        feats = self.pool2(feats)
-        feats = self.conv3(feats)
-        feats = self.pool3(feats)
+        feats1 = self.conv1(lasthiddenstate)
+        feats1 = self.pool1(feats1)
 
-        feats = feats.reshape(self.batchlen,-1)
+        feats2 = self.conv2(lasthiddenstate)
+        feats2 = self.pool2(feats2)
 
-        feats = self.relu(self.linear1(feats))
-        feats = self.dropout(feats)
-        logits = self.linear2(feats)
+        feats3 = self.conv3(lasthiddenstate)
+        feats3 = self.pool3(feats3)
+
+        feats4 = self.conv4(lasthiddenstate)
+        feats4 = self.pool4(feats4)
+
+        feats = torch.cat((feats1,feats2,feats3,feats4),dim=2)
+        feats = self.convavg(feats)
+        feats = torch.squeeze(feats,dim=2)
+        feats.to(self.device)
+
+        #feats = torch.cat((feats,features),dim=1)
+
+        logits = self.linear1(feats)
+        #feats = self.relu(self.linear1(feats))
+        #feats = self.dropout(feats)
+        #logits = self.linear2(feats)
 
         return logits
 
@@ -168,9 +201,6 @@ class ModelRoberta(nn.Module):
         logits = self.linear3(logits)
 
         return logits
-
-
-
 
 class Model(nn.Module):
     def __init__(self):
@@ -377,16 +407,18 @@ class TrainEval():
         print('Completed preprocessing')
 
         #self.model = Model()
-        self.model = ModelRoberta()
-        #self.model = ModelRobertaCNN()
+        #self.model = ModelRoberta()
+        self.model = ModelRobertaCNN()
 
 
-        self.loss = nn.BCEWithLogitsLoss()
+        #self.loss = nn.BCEWithLogitsLoss(pos_weight=torch.IntTensor([10]))
+        self.loss = nn.CrossEntropyLoss(weight=torch.FloatTensor([1,10]))
+
         self.loss.to(self.device)
 
         self.sigm = nn.Sigmoid()
 
-        self.optimizer = torch.optim.Adam(self.model.parameters(),lr=0.0001)
+        self.optimizer = torch.optim.Adam(self.model.parameters(),lr=0.001)
         self.epochs = 1000000
         self.samplesize = 16
         self.cutoff = 0.5
@@ -415,7 +447,7 @@ class TrainEval():
             logits = self.model(sample)
 
             labels = sample[labeltype].tolist()
-            labels = torch.unsqueeze(torch.FloatTensor(labels),1)
+            labels = torch.LongTensor(labels)
             labels = labels.to(self.device)
 
             loss = self.loss(logits,labels)
@@ -424,19 +456,13 @@ class TrainEval():
             loss.backward()
             self.optimizer.step()
 
-            probs = self.sigm(logits)
-            preds = torch.squeeze((probs > self.cutoff).float()).tolist()
+            preds = torch.argmax(logits,dim=1).tolist()
+            #preds = torch.squeeze((probs > self.cutoff).float()).tolist()
             labels = torch.squeeze(labels).tolist()
-            probs = torch.squeeze(probs).tolist()
-
             f1score = f1_score(labels,preds)
-            fpr,tpr,_ = roc_curve(labels,probs,pos_label=1)
-            aucscore = auc(fpr,tpr)
-
 
             self.writer.add_scalar('train_loss',loss.item(),epoch)
             self.writer.add_scalar('train_f1',f1score,epoch)
-            self.writer.add_scalar('train_auc',aucscore,epoch)
 
 
             if epoch % self.evalstep == 0: # run evaluation
@@ -446,7 +472,6 @@ class TrainEval():
 
                 with torch.no_grad():
                     preds = []
-                    probs = []
                     labels = self.preprocess.testdata[labeltype].tolist()
 
                     devloss = 0
@@ -455,30 +480,23 @@ class TrainEval():
 
                         logit = self.model(df)
 
-
                         label = df[labeltype].tolist()
-                        label = torch.unsqueeze(torch.FloatTensor(label),1)
+                        label = torch.LongTensor(label)
                         label = label.to(self.device)
 
                         devloss += self.loss(logit,label).item()
-                        prob = self.sigm(logit)
-
-                        probs.append(prob.item())
-                        if prob > self.cutoff: preds.append(1)
-                        else: preds.append(0)
+                        p = torch.argmax(logit,dim=1)
+                        preds.append(p.item())
 
                 devloss /= len(self.preprocess.testdata)
                 f1score = f1_score(labels,preds)
-                fpr, tpr, _ = roc_curve(labels, probs, pos_label=1)
-                aucscore = auc(fpr, tpr)
 
                 self.writer.add_scalar('dev_loss', devloss, int(epoch / self.evalstep ))
                 self.writer.add_scalar('dev_f1', f1score, int(epoch / self.evalstep))
-                self.writer.add_scalar('dev_auc', aucscore, int(epoch / self.evalstep))
 
                 #print ('dev f1 score:' + str(f1score))
                 #print ('dev loss:' + str(devloss.item()))
-                #print ('dev auc:' + str(aucscore))
+
 
                 lineids = self.preprocess.testdata['lineid'].tolist()
                 splits = self.preprocess.testdata['splits'].tolist()
@@ -501,15 +519,13 @@ class TrainEval():
                 self.model.train()
 
 
-
-
 def main():
     pclfile = 'data/dontpatronizeme_v1.4/dontpatronizeme_pcl.tsv'
     categoriesfile = None
 
     traineval = TrainEval(pclfile,categoriesfile)
     labeltypes = ['label','unbalanced_power','shallowsolution','presupposition','authorityvoice','metaphor','compassion','poorermerrier']
-    traineval.train_eval(labeltypes[5])
+    traineval.train_eval(labeltypes[0])
 
 if __name__ == "__main__":
     main()
