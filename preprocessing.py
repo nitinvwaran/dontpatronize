@@ -60,6 +60,61 @@ class PreProcessing():
 
         self.maxlen = int(math.floor(np.percentile(np.array(distrib),99)))
 
+
+
+    def preprocess_phrase_data(self):
+
+        listdata = []
+        with open('/home/nitin/Desktop/dontpatronize/dontpatronize/sentencesconstlabeled.txt','r') as pcl2:
+            for line in pcl2.readlines():
+
+                datum = []
+                line = line.lower().strip()
+                if line != '':
+
+                    lineid = int(line.split(',')[0])
+                    label = int(line.split(',')[-1])
+                    line = line.split(',')[1]
+                    line = line.replace('&amp;', ' and ').replace('&apos;', '').replace('&gt;', '').replace('&lt;','').replace('&quot;', '"')
+
+                    line = re.sub(self.regextag, ' ', line)
+                    for punct in self.punctuation:
+                        line = line.replace(punct, '')
+
+                    line = re.sub(r'(\! )+', '!', line)
+                    line = re.sub(r'\!+', ' ! ', line)
+                    line = re.sub(r'(\? )+', '?', line)
+                    line = re.sub(r'\?+', ' ? ', line)
+                    line = re.sub(r'(\. )+', ' . ', line)
+                    line = re.sub(r'\.\.+', '', line)
+                    line = re.sub(r'"+', '"', line)
+                    line = line.replace('"', ' " ')
+                    line = re.sub(r'-+', '-', line)
+                    line = line.replace('/', ' or ')
+
+                    line = re.sub(' +', ' ', line)
+
+                    datum.append(lineid)
+                    datum.append(line)
+                    datum.append(label)
+                    listdata.append(datum)
+
+        self.sentencedata = pd.DataFrame(listdata,columns=['lineid', 'splits', 'label'])
+        self.sentencedata.set_index('lineid')
+
+        self.get_devids()
+        mask = self.sentencedata['lineid'].isin(self.devids)
+        self.traindata = self.sentencedata.loc[~mask]
+        self.testdata = self.sentencedata.loc[mask]
+
+        self.traindata.set_index('lineid')
+        self.testdata.set_index('lineid')
+
+        self.refineddevlabels = pd.read_csv('refinedlabelsdev.csv')
+        self.refineddevlabels = self.refineddevlabels.astype(int)
+
+
+
     def preprocess_data(self):
 
         listdata = []
