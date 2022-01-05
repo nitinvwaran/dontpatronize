@@ -9,12 +9,12 @@ nlp = stanza.Pipeline(lang='en',processors='tokenize,pos,constituency')
 def get_sentences():
 
     def parse_tree(tree,constituents):
-        if type(tree) != str and tree.label() in ['NP','VP','S','SINV']:
+        if type(tree) != str and tree.label() in ['NP','VP','S','SINV','ADVP','ADJP','PP']:
             if len(tree.leaves()) > 1:
-                if tree.label() in ['VP','S','SINV'] or (tree.label() == 'NP' and 'of' in tree.leaves()[0]):
-                    if tree.leaves()[0] not in ['is','are','were','am','was','\'m','\'re','\'s','be','will','to','that']:
-                        phrase = ' '.join(tree.leaves())
-                        constituents.add(phrase.strip())
+                #if tree.label() in ['VP','S','SINV'] or (tree.label() == 'NP' and 'of' in tree.leaves()[0]):
+                #if tree.leaves()[0] not in ['is','are','were','am','was','\'m','\'re','\'s','be','will','to','that']:
+                phrase = ' '.join(tree.leaves())
+                constituents.add(phrase.strip())
 
         if type(tree) != str:
             for child in tree:
@@ -74,7 +74,7 @@ def add_label():
                     out.write(str(k) + ',' + ph.strip() + ',' + str(1) + '\n')
 
 
-#get_sentences()
+get_sentences()
 add_label()
 stats = []
 with open('sentencesconstlabeled.txt','r') as st:
