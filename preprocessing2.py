@@ -74,6 +74,7 @@ def add_label():
                     out.write(str(k) + ',' + ph.strip() + ',' + str(1) + '\n')
 
 
+"""
 get_sentences()
 add_label()
 stats = []
@@ -88,6 +89,7 @@ print(np.percentile(stats,50))
 print(np.percentile(stats,90))
 print(np.percentile(stats,95))
 print(np.percentile(stats,99))
+"""
 
 
 
