@@ -11,13 +11,23 @@ from torch.utils.tensorboard import SummaryWriter
 from collections import OrderedDict
 from copy import  deepcopy
 from sklearn.metrics import f1_score, auc, roc_curve
-from transformers import RobertaTokenizer, RobertaModel
+from transformers import RobertaTokenizer, RobertaModel, T5Tokenizer,T5EncoderModel,T5Model,BertTokenizer,BertModel,DistilBertTokenizer,DistilBertModel
 from preprocessing import PreProcessing
 from nltk.corpus import stopwords
 
 
 torch.backends.cudnn.deterministic = True
 
+class BERTWrapper():
+    def __init__(self):
+        self.tokenizer = BertTokenizer.from_pretrained('bert-base-uncased')
+        self.model = BertModel.from_pretrained('bert-base-uncased')
+
+
+class T5Wrapper():
+    def __init__(self):
+        self.tokenizer = T5Tokenizer.from_pretrained('t5-base')
+        self.model = T5EncoderModel.from_pretrained('t5-base')
 
 class RobertaWrapper():
     def __init__(self):
@@ -216,7 +226,8 @@ class ModelRobertaCNN(nn.Module):
         super(ModelRobertaCNN, self).__init__()
 
         self.device = torch.device("cuda:0" if torch.cuda.is_available() else "cpu")
-        self.bertmodel = RobertaWrapper()
+        #self.bertmodel = RobertaWrapper()
+        self.bertmodel = BERTWrapper()
 
         #for param in self.bertmodel.model.parameters():
         #    param.requires_grad = False
@@ -228,6 +239,11 @@ class ModelRobertaCNN(nn.Module):
         self.dropout = nn.Dropout()
 
         self.maxlen = 64
+
+        #self.conv2 = nn.Conv1d(768, 256, 7)
+        #self.conv2.to(self.device)
+        #self.pool2 = nn.MaxPool1d(self.maxlen // 2)
+        #self.pool2.to(self.device)
 
         self.conv3 = nn.Conv1d(768, 256, 5)
         self.conv3.to(self.device)
@@ -256,40 +272,28 @@ class ModelRobertaCNN(nn.Module):
 
     def forward(self,dataframe):
 
-
-        #data = []
         sentences = dataframe['splits'].tolist()
 
         #features = dataframe[['nmod:npmod','obl:npmod','det:predet','acl','acl:relcl','advcl','advmod','advmod:emph','advmod:lmod','amod','appos','aux','aux:pass','case','cc','cc:preconj','ccomp','clf','compound','compound:lvc','compound:prt','compound:redup','compound:svc','conj','cop','csubj','csubj:pass','dep','det','det:numgov','det:nummod','det:poss','discourse','dislocated','expl','expl:impers','expl:pass','expl:pv','fixed','flat','flat:foreign','flat:name','goeswith','iobj','list','mark','nmod','nmod:poss','nmod:tmod','nsubj','nsubj:pass','nummod','nummod:gov','obj','obl','obl:agent','obl:arg','obl:lmod','obl:tmod','orphan','parataxis','punct','reparandum','root','vocative','xcomp','subjectivity','positive','negative','subjectivewords','authoritytokens','CC','CD','DT','EX','FW','IN','JJ','JJR','JJS','LS','MD','NN','NNS','NNP','NNPS','PDT','POS','PRP','PRP$','RB','RBR','RBS','RP','SYM','TO','UH','VB','VBD','VBG','VBN','VBP','VBZ','WDT','WP','WP$','WRB','COMMA','HYPH','.','``','TWOQUOT','$','-RRB-','-LRB-',':','NFP','ADD','AFX','ind','cnd','imp','pot','sub','jus','prp','qot','opt','des','nec','irr','adm','conv','fin','gdv','ger','inf','part','sup','vnoun','fut','past','pqp','pres','CC_category','CD_category','DT_category','EX_category','FW_category','IN_category','JJ_category','JJR_category','JJS_category','LS_category','MD_category','NN_category','NNS_category','NNP_category','NNPS_category','PDT_category','POS_category','PRP_category','PRP$_category','RB_category','RBR_category','RBS_category','RP_category','SYM_category','TO_category','UH_category','VB_category','VBD_category','VBG_category','VBN_category','VBP_category','VBZ_category','WDT_category','WP_category','WP$_category','WRB_category','COMMA_category','HYPH_category','._category','``_category','TWOQUOT_category','$_category','-RRB-_category','-LRB-_category',':_category','NFP_category','ADD_category','AFX_category']]
         #features = torch.FloatTensor(features.values)
         #features = features.to(self.device)
 
-
-        """
-        # flatten sentences
-        for s in sentences:
-            s = s.replace('(','').replace(')','').replace('"','').replace('-',' ').replace(" ' ",' ')
-            s = re.sub(r'(\. )+', ' . ', s)
-            s = re.sub(r'\.\.+', '', s)
-            s = re.sub(' +','',s)
-            s = s.lower().strip()
-            data.append(s)
-        """
-
-
-
         inp = self.bertmodel.tokenizer(sentences, max_length=self.maxlen, padding='max_length', truncation=True,
-                                       add_special_tokens=False, return_tensors='pt')
+                                       add_special_tokens=False, return_tensors='pt',return_attention_mask=True)
         inp.to(self.device)
         # inp['output_hidden_states'] = True
         # attentionmask = inp['attention_mask']
 
-        output = self.bertmodel.model(**inp)
-        lasthiddenstate = output['last_hidden_state']
+        output = self.bertmodel.model(input_ids = inp['input_ids'],attention_mask=inp['attention_mask'])
+        #output = self.bertmodel.model(**inp,decoder_inputs=None)
+        lasthiddenstate = output.last_hidden_state
         lasthiddenstate.to(self.device)
 
         lasthiddenstate = lasthiddenstate.transpose(1,2)
         lasthiddenstate = self.dropout(lasthiddenstate)
+
+        #feats2 = self.conv2(lasthiddenstate)
+        #feats2 = self.pool2(feats2)
 
         feats3 = self.conv3(lasthiddenstate)
         feats3 = self.pool3(feats3)
@@ -300,8 +304,8 @@ class ModelRobertaCNN(nn.Module):
         feats5 = self.conv5(lasthiddenstate)
         feats5 = self.pool5(feats5)
 
-        #feats = torch.cat((feats2,feats3,feats4,feats5),dim=2)
         feats = torch.cat((feats3,feats4,feats5),dim=2)
+        #feats = torch.cat((feats2,feats3,feats4,feats5),dim=2)
         feats = self.convavg(feats)
         feats = torch.squeeze(feats,dim=2)
 
@@ -326,10 +330,6 @@ class ModelRoberta(nn.Module):
         self.bertmodel = RobertaWrapper()
         self.bertmodel.model.to(self.device)
 
-        self.transformerencoderlayer = torch.nn.TransformerEncoderLayer(d_model=768, nhead=8, batch_first=True)
-        self.posencoder = PositionalEncoding(d_model=768).to(self.device)
-        self.encoder = torch.nn.TransformerEncoder(self.transformerencoderlayer, num_layers=8).to(self.device)
-
         self.linear1 = nn.Linear(768, 128)
         self.linear2 = nn.Linear(128, 2)
         #self.linear3 = nn.Linear(64, 1)
@@ -344,7 +344,7 @@ class ModelRoberta(nn.Module):
 
         self.relu = nn.ReLU()
 
-        self.maxlen = 33
+        self.maxlen = 64
         #self.stopwords = set(stopwords.words('english'))
 
     def forward(self,dataframe):
@@ -374,7 +374,7 @@ class ModelRoberta(nn.Module):
         feats = self.dropoutinputs(feats)
         feats.to(self.device)
 
-        feats = feats[:,0]
+        feats = feats[:,0,:]
 
         logits = self.relu(self.linear1(feats))
         logits - self.dropout(logits)
@@ -412,7 +412,7 @@ class TrainEval():
 
         self.sigm = nn.Sigmoid()
 
-        self.optimizer = torch.optim.AdamW(self.model.parameters(),weight_decay=0.01)
+        self.optimizer = torch.optim.AdamW(self.model.parameters(),weight_decay=0.01,lr=0.001)
         #self.scheduler = torch.optim.lr_scheduler.MultiStepLR(self.optimizer,milestones=[4000],gamma=0.1)
         self.epochs = 1000000
         self.samplesize = 32

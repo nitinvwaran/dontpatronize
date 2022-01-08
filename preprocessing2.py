@@ -2,9 +2,11 @@ import pandas as pd
 import stanza
 from nltk import ParentedTree
 import numpy as np
+import re
 
 nlp = stanza.Pipeline(lang='en',processors='tokenize,pos,constituency')
-
+punctuation = r'@#^\*|~`<>\\'
+regextag = r'<.+>'
 
 def get_sentences():
 
@@ -56,6 +58,26 @@ def add_label():
                 labeledphrases[lineid] = []
 
             phrase = line.split('\t')[-3]
+            phrase = phrase.lower().strip()
+            phrase = phrase.replace('&amp;', ' and ').replace('&apos;', '').replace('&gt;', '').replace('&lt;', '').replace('&quot;', '"')
+
+            phrase = re.sub(regextag, ' ', phrase)
+            for punct in punctuation:
+                phrase = phrase.replace(punct, '')
+
+            phrase = re.sub(r'(\! )+', '!', phrase)
+            phrase = re.sub(r'\!+', ' ! ', phrase)
+            phrase = re.sub(r'(\? )+', '?', phrase)
+            phrase = re.sub(r'\?+', ' ? ', phrase)
+            phrase = re.sub(r'(\. )+', ' . ', phrase)
+            phrase = re.sub(r'\.\.+', '', phrase)
+            phrase = re.sub(r'"+', '"', phrase)
+            phrase = phrase.replace('"', ' " ')
+            phrase = re.sub(r'-+', '-', phrase)
+            phrase = phrase.replace('/', ' or ')
+
+            phrase = re.sub(' +', ' ', phrase)
+            phrase = phrase.replace(')', '').replace('(', '').replace('"', '')
             labeledphrases[lineid].append(phrase)
 
 
@@ -74,7 +96,7 @@ def add_label():
                     out.write(str(k) + ',' + ph.strip() + ',' + str(1) + '\n')
 
 
-"""
+
 get_sentences()
 add_label()
 stats = []
@@ -89,7 +111,7 @@ print(np.percentile(stats,50))
 print(np.percentile(stats,90))
 print(np.percentile(stats,95))
 print(np.percentile(stats,99))
-"""
+
 
 
 

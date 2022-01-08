@@ -75,31 +75,14 @@ class PreProcessing():
                     lineid = int(line.split(',')[0])
                     label = int(line.split(',')[-1])
                     line = line.split(',')[1]
-                    line = line.replace('&amp;', ' and ').replace('&apos;', '').replace('&gt;', '').replace('&lt;','').replace('&quot;', '"')
-
-                    line = re.sub(self.regextag, ' ', line)
-                    for punct in self.punctuation:
-                        line = line.replace(punct, '')
-
-                    line = re.sub(r'(\! )+', '!', line)
-                    line = re.sub(r'\!+', ' ! ', line)
-                    line = re.sub(r'(\? )+', '?', line)
-                    line = re.sub(r'\?+', ' ? ', line)
-                    line = re.sub(r'(\. )+', ' . ', line)
-                    line = re.sub(r'\.\.+', '', line)
-                    line = re.sub(r'"+', '"', line)
-                    line = line.replace('"', ' " ')
-                    line = re.sub(r'-+', '-', line)
-                    line = line.replace('/', ' or ')
-
-                    line = re.sub(' +', ' ', line)
 
                     datum.append(lineid)
-                    datum.append(line)
+                    datum.append(line.strip())
                     datum.append(label)
                     listdata.append(datum)
 
         self.sentencedata = pd.DataFrame(listdata,columns=['lineid', 'splits', 'label'])
+        self.sentencedata = self.sentencedata.sample(frac=1).reset_index(drop=True)
         self.sentencedata.set_index('lineid')
 
         self.get_devids()
@@ -109,6 +92,9 @@ class PreProcessing():
 
         self.traindata.set_index('lineid')
         self.testdata.set_index('lineid')
+
+        self.traindata.to_csv('traindata.csv')
+        self.testdata.to_csv('testdata.csv')
 
         self.refineddevlabels = pd.read_csv('refinedlabelsdev.csv')
         self.refineddevlabels = self.refineddevlabels.astype(int)
