@@ -140,7 +140,7 @@ class ModelRobertaCNN(nn.Module):
         self.pool5 = nn.MaxPool1d(self.maxlen // 4)
         self.pool5.to(self.device)
 
-        self.convavg = nn.AvgPool1d(5)
+        self.convavg = nn.MaxPool1d(5)
         self.convavg.to(self.device)
 
         self.linear1 = nn.Linear(128, 2)
@@ -155,8 +155,8 @@ class ModelRobertaCNN(nn.Module):
         sentences = dataframe['splits'].tolist()
 
         sentences = [str(s).replace('\t',' . ') for s in sentences]
-        sentences = [s.replace('"','') for s in sentences]
-        sentences = [s.replace('-',' - ') for s in sentences]
+        sentences = [s.replace('"',' ') for s in sentences]
+        sentences = [s.replace('- ',' - ') for s in sentences]
         sentences = [re.sub(' +',' ',s) for s in sentences]
 
 
@@ -270,11 +270,11 @@ class TrainEval():
 
         #self.optimizer = torch.optim.AdamW(list(self.model.bertmodel.model.parameters()),lr=0.0001,weight_decay=0.01)
 
-        params = []
-        params.extend(self.model.parameters())
-        params.extend(self.model.bertmodel.model.parameters())
+        #params = []
+        #params.extend(self.model.parameters())
+        #params.extend(self.model.bertmodel.model.parameters())
 
-        self.optimizer = torch.optim.AdamW(params,lr=0.0001)
+        self.optimizer = torch.optim.AdamW(self.model.parameters(),lr=0.001)
         #self.scheduler = torch.optim.lr_scheduler.MultiStepLR(self.optimizer,milestones=[4000],gamma=0.1)
         self.epochs = 1000000
         self.samplesize = 32
