@@ -2,6 +2,7 @@ import pandas as pd
 import stanza
 import re
 import numpy as np
+import os
 
 from nltk import ParentedTree
 from tqdm import tqdm
@@ -27,41 +28,53 @@ class PreprocessingUtils():
 
         self.refinedlabelsdev = pd.read_csv('refinedlabelsdev.csv')
 
-        lengths = []
-        phraselengths = []
+        if os.path.isfile('traindata.tsv') and os.path.isfile('devdata.tsv'):
+            self.traindata = pd.read_csv('traindata.tsv',sep='\t')
+            self.devdata = pd.read_csv('devdata.tsv',sep='\t')
 
-        data = pd.read_csv(self.datafile,sep='\t')
-        data = data.sample(frac=1).reset_index(drop=True)
+            self.traindata.set_index('lineid')
+            self.devdata.set_index('lineid')
 
-        for _,row in data.iterrows():
-            lengths.append(len(str(row['text']).split()))
-            phraselengths.append(len(str(row['phrase']).split()))
+        else:
 
-        self.get_devids()
+            lengths = []
+            phraselengths = []
 
-        mask = data['lineid'].isin(self.devids)
-        self.traindata = data.loc[~mask]
-        self.devdata = data.loc[mask]
+            data = pd.read_csv(self.datafile,sep='\t')
+            data = data.sample(frac=1).reset_index(drop=True)
 
-        self.traindata.set_index('lineid')
-        self.devdata.set_index('lineid')
+            #for _,row in data.iterrows():
+            #    lengths.append(len(str(row['text']).split()))
+            #    phraselengths.append(len(str(row['phrase']).split()))
 
-        self.traindata.to_csv('traindata.tsv',sep='\t',index=False)
-        self.devdata.to_csv('devdata.tsv',sep='\t',index=False)
+            self.get_devids()
 
-        print('text stats')
-        print(np.percentile(lengths,50))
-        print(np.percentile(lengths, 90))
-        print(np.percentile(lengths, 95))
-        print(np.percentile(lengths, 99))
-        print(max(lengths))
+            mask = data['lineid'].isin(self.devids)
+            self.traindata = data.loc[~mask]
+            self.devdata = data.loc[mask]
 
-        print('phrase stats')
-        print(np.percentile(phraselengths, 50))
-        print(np.percentile(phraselengths, 90))
-        print(np.percentile(phraselengths, 95))
-        print(np.percentile(phraselengths, 99))
-        print(max(phraselengths))
+            self.traindata.set_index('lineid')
+            self.devdata.set_index('lineid')
+
+            self.traindata.to_csv('traindata.tsv',sep='\t',index=False)
+            self.devdata.to_csv('devdata.tsv',sep='\t',index=False)
+
+            """
+            print('text stats')
+            print(np.percentile(lengths,50))
+            print(np.percentile(lengths, 90))
+            print(np.percentile(lengths, 95))
+            print(np.percentile(lengths, 99))
+            print(max(lengths))
+    
+            print('phrase stats')
+            print(np.percentile(phraselengths, 50))
+            print(np.percentile(phraselengths, 90))
+            print(np.percentile(phraselengths, 95))
+            print(np.percentile(phraselengths, 99))
+            print(max(phraselengths))
+            """
+
 
 
 
@@ -195,6 +208,7 @@ class PreprocessingUtils():
 
                                     #startindex = line.find(const)
                                     #assert startindex != -1
+                                    if len(const.split()) < self.constituentphrasecutoff: continue
 
                                     dataf.write(str(lineid) + '\t' + line + '\t' + const  + '\t' + str(0) + '\n')
                             else:
@@ -223,7 +237,7 @@ def main():
     pclfile = 'data/dontpatronizeme_v1.4/dontpatronizeme_pcl.tsv'
     categoriesfile = 'data/dontpatronizeme_v1.4/dontpatronizeme_categories.tsv'
     preprocess = PreprocessingUtils(pclfile,categoriesfile,None)
-    #preprocess.preprocess()
+    preprocess.preprocess()
     preprocess.get_train_test_data()
 
 
