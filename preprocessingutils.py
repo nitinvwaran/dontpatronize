@@ -40,7 +40,7 @@ class PreprocessingUtils():
         # taken from the official docs: https://datatracker.ietf.org/doc/html/rfc5322
         self.emailaddressregex = r'(?:[a-z0-9!#$%&\'*+\/=?^_`{|}~-]+(?:\.[a-z0-9!#$%&\'*+\/=?^_`{|}~-]+)*|"(?:[\x01-\x08\x0b\x0c\x0e-\x1f\x21\x23-\x5b\x5d-\x7f]|\\[\x01-\x09\x0b\x0c\x0e-\x7f])*")@(?:(?:[a-z0-9](?:[a-z0-9-]*[a-z0-9])?\.)+[a-z0-9](?:[a-z0-9-]*[a-z0-9])?|\[(?:(?:25[0-5]|2[0-4][0-9]|[01]?[0-9][0-9]?)\.){3}(?:25[0-5]|2[0-4][0-9]|[01]?[0-9][0-9]?|[a-z0-9-]*[a-z0-9]:(?:[\x01-\x08\x0b\x0c\x0e-\x1f\x21-\x5a\x53-\x7f]|\\[\x01-\x09\x0b\x0c\x0e-\x7f])+)\])'
 
-        self.presuppositionadverbs = {'never','most','just','already','still','even','really','much rather','ever','ever again','such','otherwise','rather than','also','usually'}
+        self.presuppositionadverbs = {'more likely','likely to','typical','yet','also','never','most','just','already','still','even','really','much rather','ever','ever again','such','otherwise','rather than','also','usually'}
 
     #def presuppositiontriggers(self,phrase):
 
@@ -241,7 +241,12 @@ class PreprocessingUtils():
                         continue
 
 
-                    docpos = self.nlp(text)
+                    try:
+                        docpos = self.nlp(text)
+                    except Exception:
+
+                        continue
+
                     newline = []
                     for sent in docpos.sentences:
                         for word in sent.words:
@@ -334,7 +339,7 @@ def main():
     categoriesfile = 'data/dontpatronizeme_v1.4/dontpatronizeme_categories.tsv'
     preprocess = PreprocessingUtils(pclfile,categoriesfile,None)
     #preprocess.preprocess()
-    preprocess.preprocess_talkdown()
+    #preprocess.preprocess_talkdown()
     preprocess.get_train_test_data(usetalkdown=True)
 
 
