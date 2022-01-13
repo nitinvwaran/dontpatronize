@@ -3,8 +3,6 @@ import torch
 import torch.nn as nn
 import os,shutil
 import numpy as np
-import re
-import torch.nn.functional as F
 import random
 import argparse
 
@@ -32,6 +30,7 @@ class BertModels(nn.Module):
 
         self.maxlen = maxlen
 
+
     def forward(self,dataframe):
 
         texts = dataframe['text'].tolist()
@@ -41,7 +40,7 @@ class BertModels(nn.Module):
         labels = torch.LongTensor(labels)
         labels = labels.to(self.device)
 
-        tokens = self.tokenizer(text=phrases,text_pair=texts,padding='longest',return_tensors='pt',max_length=self.maxlen,truncation=True)
+        tokens = self.tokenizer(text=phrases,text_pair=texts,padding='max_length',return_tensors='pt',max_length=self.maxlen,truncation=True)
         tokens.to(self.device)
 
         output = self.model(labels=labels, **tokens)
@@ -79,12 +78,10 @@ class TrainEval():
         self.samplesize = 32
 
         self.evalstep = 50
-        self.earlystopgap = 10
+        self.earlystopgap = 30
         self.maxdevf1 = float('-inf')
 
         self.checkpointfile = 'data/checkpoint/model.pt'
-
-        self.devf1file = open('devf1.txt','w')
 
     def set_seed(self,seed):
 
@@ -99,6 +96,8 @@ class TrainEval():
 
         postraindata = self.preprocess.traindata.loc[self.preprocess.traindata['label'] == 1]
         negtraindata = self.preprocess.traindata.loc[self.preprocess.traindata['label'] == 0]
+
+        torch.cuda.empty_cache()
 
         self.set_seed(42)
         self.optimizer.zero_grad()
@@ -165,7 +164,7 @@ class TrainEval():
                     self.writer.add_scalar('dev_loss', devloss, int(epoch / self.evalstep))
                     self.writer.add_scalar('dev_f1', f1score, int(epoch / self.evalstep))
 
-                    self.devf1file.write(str(f1score) + ',' + str(devloss) + '\n')
+                    print('dev f1 and loss: ' + str(f1score) + ',' + str(devloss))
 
                     if f1score > self.maxdevf1:
 
@@ -186,8 +185,8 @@ def main():
     parser = argparse.ArgumentParser()
 
     parser.add_argument('--lr', type=float, default=1e-5)
-    parser.add_argument('--maxlen', type=int, default=256)
-    parser.add_argument('--devbat', type=int, default=1000)
+    parser.add_argument('--maxlen', type=int, default=224)
+    parser.add_argument('--devbat', type=int, default=500)
     parser.add_argument('--wd', type=float, default=0.0)
     parser.add_argument('--bertmodeltype',type=str, default='distilbert')
 
