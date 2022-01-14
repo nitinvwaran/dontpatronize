@@ -133,3 +133,7 @@ dmypy.json
 /data/
 /refinedlabelstrain.csv
 /refinedlabelsdev.csv
+/talkdowndata.csv
+/traindata.tsv
+/devdata.tsv
+/extradata

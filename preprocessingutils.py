@@ -18,45 +18,33 @@ class PreprocessingUtils():
         self.testfile = testfile
         self.devfile = 'data/dev_ids.txt'
         self.devids = []
+        self.testids = []
         self.labeledids = set()
         self.punctuation = r'@#^\*|~`<>\\$'
         self.regextag = r'<.+>'
         self.datafile = 'data/preprocesseddata.tsv'
+        self.datafiletest = 'data/preprocesseddatatest.tsv'
         self.talkdowndatafile = 'data/talkdownpreprocesseddata.tsv'
         self.constituentphrasecutoff = 5
         self.get_categoriesids()
 
-        # anything starting with http(s):// , ftp(s):// , www and ending with a space as URLs cannot contain spaces
         self.urlregex1 = r'((http(s)?|ftp(s)?|HTTP(S)?|FTP(S)?):\/\/|(www\.|WWW\.))[^\s]*'
-
-        # URL regex to get anything not starting with http(s), ftp(s), www, but get strings that end with common domain names and ccTLDs
         self.urlregex2 = r'[^\s]+(\.gov|\.news|\.pro|\.com|\.net|\.org|\.xxx|\.one|\.ac|\.ad|\.ae|\.af|\.ag|\.ai|\.al|\.am|\.an|\.ao|\.aq|\.ar|\.as|\.at|\.au|\.aw|\.ax|\.az|\.ba|\.bb|\.bd|\.be|\.bf|\.bg|\.bh|\.bi|\.bj|\.bl|\.bm|\.bn|\.bo|\.br|\.bq|\.bs|\.bt|\.bv|\.bw|\.by|\.bz|\.ca|\.cc|\.cd|\.cf|\.cg|\.ch|\.ci|\.ck|\.cl|\.cm|\.cn|\.co|\.cr|\.cs|\.cu|\.cv|\.cw|\.cx|\.cy|\.cz|\.dd|\.de|\.dj|\.dk|\.dm|\.do|\.dz|\.ec|\.ee|\.eg|\.eh|\.er|\.es|\.et|\.eu|\.fi|\.fj|\.fk|\.fm|\.fo|\.fr|\.ga|\.gb|\.gd|\.ge|\.gf|\.gg|\.gh|\.gi|\.gl|\.gm|\.gn|\.gp|\.gq|\.gr|\.gs|\.gt|\.gu|\.gw|\.gy|\.hk|\.hm|\.hn|\.hr|\.ht|\.hu|\.id|\.ie|\.il|\.im|\.in|\.io|\.iq|\.ir|\.is|\.it|\.je|\.jm|\.jo|\.jp|\.ke|\.kg|\.kh|\.ki|\.km|\.kn|\.kp|\.kr|\.kw|\.ky|\.kz|\.la|\.lb|\.lc|\.li|\.lk|\.lr|\.ls|\.lt|\.lu|\.lv|\.ly|\.ma|\.mc|\.md|\.me|\.mf|\.mg|\.mh|\.mk|\.ml|\.mm|\.mn|\.mo|\.mp|\.mq|\.mr|\.ms|\.mt|\.mu|\.mv|\.mw|\.mx|\.my|\.mz|\.na|\.nc|\.ne|\.nf|\.ng|\.ni|\.nl|\.no|\.np|\.nr|\.nu|\.nz|\.om|\.pa|\.pe|\.pf|\.pg|\.ph|\.pk|\.pl|\.pm|\.pn|\.pr|\.ps|\.pt|\.pw|\.py|\.qa|\.re|\.ro|\.rs|\.ru|\.rw|\.sa|\.sb|\.sc|\.sd|\.se|\.sg|\.sh|\.si|\.sj|\.sk|\.sl|\.sm|\.sn|\.so|\.sr|\.ss|\.st|\.su|\.sv|\.sx|\.sy|\.sz|\.tc|\.td|\.tf|\.tg|\.th|\.tj|\.tk|\.tl|\.tm|\.tn|\.to|\.tp|\.tr|\.tt|\.tv|\.tw|\.tz|\.ua|\.ug|\.uk|\.um|\.us|\.uy|\.uz|\.va|\.vc|\.ve|\.vg|\.vi|\.vn|\.vu|\.wf|\.ws|\.ye|\.yt|\.yu|\.za|\.zm|\.zr|\.zw)[\/|\s]'
-
-        # IPV4 regex, will get IPV4 addresses surrounded by whitespaces or the backslash (for URLs)
-        # will not get embedded IPV4 addresses not surrounded by above delimiters
-        # Extra validation on python code will check range of 0-255
         self.ipv4regex = r'(?<![\.|[0-9a-zA-Z~`!@#$%^&*()_\-+=|\\\]\[\}\{\'\";:?\,><])[\/]?([0-9]{1,3}\.[0-9]{1,3}\.[0-9]{1,3}\.[0-9]{1,3})([^\.|^[0-9a-zA-Z~`!@#$%^&*()_\-+=|\\\]\[\}\{\'\";:?\,><]|[\/])'
-
-        # taken from the official docs: https://datatracker.ietf.org/doc/html/rfc5322
         self.emailaddressregex = r'(?:[a-z0-9!#$%&\'*+\/=?^_`{|}~-]+(?:\.[a-z0-9!#$%&\'*+\/=?^_`{|}~-]+)*|"(?:[\x01-\x08\x0b\x0c\x0e-\x1f\x21\x23-\x5b\x5d-\x7f]|\\[\x01-\x09\x0b\x0c\x0e-\x7f])*")@(?:(?:[a-z0-9](?:[a-z0-9-]*[a-z0-9])?\.)+[a-z0-9](?:[a-z0-9-]*[a-z0-9])?|\[(?:(?:25[0-5]|2[0-4][0-9]|[01]?[0-9][0-9]?)\.){3}(?:25[0-5]|2[0-4][0-9]|[01]?[0-9][0-9]?|[a-z0-9-]*[a-z0-9]:(?:[\x01-\x08\x0b\x0c\x0e-\x1f\x21-\x5a\x53-\x7f]|\\[\x01-\x09\x0b\x0c\x0e-\x7f])+)\])'
-
         self.presuppositionadverbs = {'more likely','likely to','typical','yet','also','never','most','just','already','still','even','really','much rather','ever','ever again','such','otherwise','rather than','also','usually'}
-
-    #def presuppositiontriggers(self,phrase):
-
-
 
 
     def get_train_test_data(self,usetalkdown=False):
 
         self.refinedlabelsdev = pd.read_csv('refinedlabelsdev.csv')
-        talkdowndata = pd.read_csv(self.talkdowndatafile,sep='\t')
 
         if os.path.isfile('traindata.tsv') and os.path.isfile('devdata.tsv'):
             self.traindata = pd.read_csv('traindata.tsv',sep='\t')
             self.devdata = pd.read_csv('devdata.tsv',sep='\t')
 
             if usetalkdown == True:
+                talkdowndata = pd.read_csv(self.talkdowndatafile, sep='\t')
                 self.traindata = pd.concat([self.traindata,talkdowndata],axis=0)
 
             self.traindata.set_index('lineid')
@@ -114,6 +102,12 @@ class PreprocessingUtils():
                 self.labeledids.add(lineid)
 
 
+    def get_testids(self):
+        with open(self.testfile,'r') as ts:
+            for line in ts.readlines():
+                lineid = line.split('\t')[0]
+
+                self.testids.append(lineid.strip())
 
     def get_devids(self):
         with open(self.devfile, 'r') as ds:
@@ -256,7 +250,57 @@ class PreprocessingUtils():
                     dataf.write(str(lineid) + '\t' + category.strip() + '\t' + ' '.join(newline) + '\t' + phrase + '\t' + str(label) + '\n')
 
 
+    def preprocess_test(self):
 
+        testfilelineids = set()
+        testfile2lineids = set()
+
+        with open(self.datafiletest,'w') as dataf:
+            dataf.write('lineid' + '\t' + 'category' + '\t' + 'text' + '\t' + 'phrase' + '\n')
+
+            with open(self.testfile,'r') as test:
+                for line in tqdm(test.readlines()):
+
+                    line = line.strip()
+                    if line != '':
+
+                        lineid = line.split('\t')[0]
+                        category = str(line.split('\t')[2]).strip()
+                        testfilelineids.add(lineid)
+
+                        line = line.split('\t')[-1]
+
+                        line = self.clean_string(line)
+                        splits = self.split_string(line)
+
+                        docpos = self.nlp(line)
+                        newline = []
+                        for sent in docpos.sentences:
+                            for word in sent.words:
+                                if word.upos in ['ADJ', 'ADV', 'INTJ', 'VERB', 'NOUN', 'PROPN', 'PRON','ADP']: newline.append(word.text)
+
+                        consts = set()
+                        for split in splits:
+                            consts.update(self.get_const_parses(split))
+
+                        if len(consts) > 0:
+
+                            for const in consts:
+
+                                if len(const.split()) < self.constituentphrasecutoff:
+                                    continue
+
+                                dataf.write(str(lineid) + '\t' + category.strip() + '\t' + ' '.join(
+                                    newline) + '\t' + const + '\n')
+
+                                testfile2lineids.add(lineid)
+                        else:
+                            dataf.write(str(lineid) + '\t' + category.strip() + '\t' + ' '.join(
+                                newline) + '\t' + line + '\n')
+
+                            testfile2lineids.add(lineid)
+
+        assert len(testfile2lineids) == len(testfilelineids)
 
     def preprocess(self):
 
@@ -337,10 +381,13 @@ def main():
 
     pclfile = 'data/dontpatronizeme_v1.4/dontpatronizeme_pcl.tsv'
     categoriesfile = 'data/dontpatronizeme_v1.4/dontpatronizeme_categories.tsv'
-    preprocess = PreprocessingUtils(pclfile,categoriesfile,None)
+    testfile = 'data/dontpatronizeme_v1.4/testdata.tsv'
+    preprocess = PreprocessingUtils(pclfile,categoriesfile,testfile)
     #preprocess.preprocess()
     #preprocess.preprocess_talkdown()
-    preprocess.get_train_test_data(usetalkdown=True)
+    #preprocess.get_train_test_data(usetalkdown=True)
+    preprocess.get_testids()
+    preprocess.preprocess_test()
 
 
 if __name__ == "__main__":
