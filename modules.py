@@ -11,12 +11,29 @@ from copy import deepcopy
 from preprocessingutils import PreprocessingUtils
 from torch.utils.tensorboard import SummaryWriter
 from sklearn.metrics import f1_score
-from transformers import BertTokenizer,BertForSequenceClassification,DistilBertTokenizer,DistilBertForSequenceClassification,DistilBertModel, BertModel, RobertaTokenizer,RobertaForSequenceClassification,XLMTokenizer,XLMForSequenceClassification,XLNetTokenizer,XLNetForSequenceClassification
+from transformers import BertTokenizer,BertForSequenceClassification,DistilBertTokenizer,DistilBertForSequenceClassification,\
+    DistilBertModel, BertModel, RobertaTokenizer,RobertaForSequenceClassification,XLNetTokenizer,XLNetForSequenceClassification, RobertaModel, XLNetModel
 
 
 class CNNBert(nn.Module):
-    def __init__(self):
+    def __init__(self,maxlen=512,bertmodeltype='rawdistilbert'):
+
         super(CNNBert, self).__init__()
+
+        if bertmodeltype == 'rawdistilbert':
+            self.tokenizer = DistilBertTokenizer.from_pretrained('distilbert-base-cased')
+            self.model = DistilBertModel.from_pretrained('distilbert-base-cased')
+        elif bertmodeltype == 'rawbert':
+            self.tokenizer = BertTokenizer.from_pretrained('bert-base-cased')
+            self.model = BertModel.from_pretrained('bert-base-cased')
+        elif bertmodeltype == 'rawroberta':
+            self.tokenizer = RobertaTokenizer.from_pretrained('roberta-base')
+            self.model = RobertaModel.from_pretrained('roberta-base')
+        elif bertmodeltype == 'rawxlnet':
+            self.tokenizer = XLNetTokenizer.from_pretrained('xlnet-base-cased')
+            self.model = XLNetModel.from_pretrained('xlnet-base-cased')
+
+        self.model.to(self.device)
 
         self.device = torch.device("cuda:0" if torch.cuda.is_available() else "cpu")
 
@@ -25,7 +42,7 @@ class CNNBert(nn.Module):
         self.dropout = nn.Dropout()
         self.dropoutinputs = nn.Dropout(p=0.1)
 
-        self.maxlen = 24
+        self.maxlen = maxlen
 
         self.conv1 = nn.Conv1d(768, 128, 9)
         self.conv1.to(self.device)
@@ -63,7 +80,7 @@ class CNNBert(nn.Module):
         inp = self.bertmodel.tokenizer(sentences, max_length=self.maxlen, padding='max_length', truncation=True,
                                        add_special_tokens=False, return_tensors='pt')
         inp.to(self.device)
-        output = self.bertmodel.model(**inp)
+        output = self.model(**inp)
         lasthiddenstate = output.last_hidden_state
         lasthiddenstate.to(self.device)
 
@@ -82,19 +99,13 @@ class CNNBert(nn.Module):
         feats4 = self.conv4(lasthiddenstate)
         feats4 = self.pool4(feats4)
 
-        feats5 = self.conv5(lasthiddenstate)
-        feats5 = self.pool5(feats5)
 
-
-        feats = torch.cat((feats1, feats2,feats3,feats4,feats5),dim=2)
-        #feats = torch.cat((feats3,feats4,feats5), dim=2)
+        feats = torch.cat((feats1, feats2,feats3,feats4),dim=2)
         feats = self.convavg(feats)
         feats = torch.squeeze(feats,dim=2)
 
         #feats = torch.reshape(feats,(feats.size(dim=0),-1))
         feats.to(self.device)
-
-
 
         feats = self.relu(self.linear1(feats))
         feats = self.dropout(feats)
@@ -104,35 +115,34 @@ class CNNBert(nn.Module):
         return logits
 
 
-
 class LSTMAttention(nn.Module):
-    def __init__(self,lstmtype='lstm',bertmodeltype='rawbert',maxlen=512):
+    def __init__(self,rnntype='lstm',bertmodeltype='rawdistilbert',maxlentext=128,maxlenphrase=64):
 
         super(LSTMAttention,self).__init__()
 
         self.device = torch.device("cuda:0" if torch.cuda.is_available() else "cpu")
 
-        if bertmodeltype == 'bert':
-            self.tokenizer = BertTokenizer.from_pretrained('bert-base-cased')
-            self.model = BertForSequenceClassification.from_pretrained('bert-base-cased')
-        elif bertmodeltype == 'distilbert':
-            self.tokenizer = DistilBertTokenizer.from_pretrained('distilbert-base-cased')
-            self.model = DistilBertForSequenceClassification.from_pretrained('distilbert-base-cased')
-        elif bertmodeltype == 'rawdistilbert':
+        if bertmodeltype == 'rawdistilbert':
             self.tokenizer = DistilBertTokenizer.from_pretrained('distilbert-base-cased')
             self.model = DistilBertModel.from_pretrained('distilbert-base-cased')
         elif bertmodeltype == 'rawbert':
             self.tokenizer = BertTokenizer.from_pretrained('bert-base-cased')
             self.model = BertModel.from_pretrained('bert-base-cased')
+        elif bertmodeltype == 'rawroberta':
+            self.tokenizer = RobertaTokenizer.from_pretrained('roberta-base')
+            self.model = RobertaModel.from_pretrained('roberta-base')
+        elif bertmodeltype == 'rawxlnet':
+            self.tokenizer = XLNetTokenizer.from_pretrained('xlnet-base-cased')
+            self.model = XLNetModel.from_pretrained('xlnet-base-cased')
 
         self.model.to(self.device)
 
         self.hiddensize = 256
         self.numlayers = 2
-        self.lstmtype = lstmtype
+        self.rnntype = rnntype
 
-        self.maxlentext = 128
-        self.maxlenphrase = 64
+        self.maxlentext = maxlentext
+        self.maxlenphrase = maxlenphrase
 
         self.rnndropout = 0.3
 
@@ -142,6 +152,16 @@ class LSTMAttention(nn.Module):
 
             self.rnntext = nn.LSTM(input_size=768, hidden_size=self.hiddensize, num_layers=self.numlayers, batch_first=True,bidirectional=True,dropout=self.rnndropout)
             self.rnntext.to(self.device)
+        else: # gru
+            self.rnnphrase = nn.GRU(input_size=768, dropout=self.rnndropout, hidden_size=self.hiddensize,
+                                     num_layers=self.numlayers, batch_first=True, bidirectional=True)
+            self.rnnphrase.to(self.device)
+
+            self.rnntext = nn.GRU(input_size=768, hidden_size=self.hiddensize, num_layers=self.numlayers,
+                                   batch_first=True, bidirectional=True, dropout=self.rnndropout)
+            self.rnntext.to(self.device)
+
+
 
         self.attn = nn.Linear(self.hiddensize * 2, self.hiddensize * 2)
         self.attn.to(self.device)
@@ -235,7 +255,7 @@ class BertModels(nn.Module):
 
 class TrainEval():
 
-    def __init__(self,pclfile,categoryfile,learningrate=1e-5,modeltype='rnn',bertmodeltype='rawdistilbert',maxlen=256,devbatchsize=1000,weightdecay=0):
+    def __init__(self,pclfile,categoryfile,learningrate=1e-5,modeltype='rnn',bertmodeltype='rawdistilbert',rnntype='lstm',maxlentext=256,maxlenphrase=64,devbatchsize=1000,weightdecay=0):
 
         if os.path.isdir('tensorboarddir/'):
             shutil.rmtree('tensorboarddir/')
@@ -251,27 +271,29 @@ class TrainEval():
         self.modeltype = modeltype
         self.bertmodeltype = bertmodeltype
         self.learningrate = learningrate
+        self.rnntype = rnntype
 
         self.devbatchsize=devbatchsize
 
         if modeltype == 'bert':
-            self.model = BertModels(bertmodeltype=bertmodeltype,maxlen=maxlen)
+            self.model = BertModels(bertmodeltype=bertmodeltype,maxlen=maxlentext)
         elif modeltype == 'rnn':
-            self.model = LSTMAttention(lstmtype='lstm',bertmodeltype=bertmodeltype)
+            self.model = LSTMAttention(rnntype=rnntype,bertmodeltype=bertmodeltype,maxlentext=maxlentext,maxlenphrase=maxlenphrase)
+        else: # cnn
+            self.model = CNNBert(bertmodeltype=bertmodeltype,maxlen=maxlentext)
 
         self.bestmodel = ''
 
         self.softmax = nn.Softmax()
 
-        if self.modeltype == 'bert':
-            self.optimizer = torch.optim.AdamW(self.model.parameters(), lr=learningrate,weight_decay=weightdecay)
-        else:
-            self.loss = nn.CrossEntropyLoss(weight=torch.FloatTensor([1,10]))
-            self.loss.to(self.device)
-            #params = list(self.model.model.parameters()) + list(self.model.parameters())
-            params = list(self.model.parameters())
+        self.optimizer = torch.optim.AdamW(self.model.parameters(), lr=learningrate,weight_decay=weightdecay)
 
-            self.optimizer = torch.optim.AdamW(params, lr=learningrate,weight_decay=weightdecay)
+        if self.modeltype != 'bert':
+            self.loss = nn.CrossEntropyLoss()
+            self.loss.to(self.device)
+
+
+        self.scheduler = torch.optim.lr_scheduler.MultiStepLR(self.optimizer,milestones=[1000,5000],gamma=0.1)
 
         self.epochs = 1000000
         self.samplesize = 32
@@ -288,8 +310,11 @@ class TrainEval():
         np.random.seed(seed)
         torch.manual_seed(seed)
 
+    def write_best_model(self,f1score):
+        with open('bestmodel.txt','w') as o:
+            o.write(self.bestmodel + ',' + str(f1score))
 
-    def train_eval_bertmodels(self):
+    def train_eval_models(self):
 
         earlystopcounter = 0
 
@@ -305,8 +330,8 @@ class TrainEval():
 
             self.model.train()
 
-            possample = postraindata.sample(n=self.samplesize // 8)
-            negsample = negtraindata.sample(n=(self.samplesize // 8) * 7)
+            possample = postraindata.sample(n=1)
+            negsample = negtraindata.sample(n=self.samplesize - 1)
 
             sample = pd.concat([possample, negsample], ignore_index=True)
             sample = sample.sample(frac=1).reset_index(drop=True)
@@ -314,7 +339,7 @@ class TrainEval():
             if self.modeltype == 'bert':
                 loss, _ = self.model(sample)
 
-            elif self.modeltype == 'rnn':
+            else:
                 logits = self.model(sample)
                 labels = sample['label'].tolist()
                 labels = torch.LongTensor(labels)
@@ -326,6 +351,8 @@ class TrainEval():
 
             self.optimizer.step()
             self.optimizer.zero_grad()
+
+            self.scheduler.step()
 
             self.writer.add_scalar('train_loss', loss.item(), epoch)
 
@@ -396,13 +423,15 @@ class TrainEval():
                     if f1score > self.maxdevf1:
 
                         self.maxdevf1 = f1score
-                        self.bestmodel = self.checkpointfile.replace('.pt', '_' + str(type(self.model)) + '_' + str(type(self.model.model)) + '_' + str(f1score) + '.pt')
+                        self.bestmodel = self.checkpointfile.replace('.pt', '_' + self.modeltype + '_' + self.bertmodeltype + '_' + self.rnntype + '_' + str(f1score) +  '.pt')
 
                         torch.save(self.model.state_dict(), self.bestmodel)
-                        devlabels.to_csv('data/errors_' + str(type(self.model)) + '_' + str(type(self.model.model)) + '_' + str(f1score) + '.csv')
-                        preds2.to_csv('data/proba/blendeddata_' + str(type(self.model)) + '_' + str(type(self.model.model)) + '_' + str(f1score) + '.csv')
+                        devlabels.to_csv('data/errors/errors_' + self.modeltype + '_' + self.bertmodeltype + '_' + self.rnntype + '_' +  str(f1score) + '.csv')
+                        preds2.to_csv('data/proba/blendeddata_'  + self.modeltype + '_' + self.bertmodeltype + '_' + self.rnntype + '_' + str(f1score) +  '.csv')
 
                         earlystopcounter = 0
+
+                        self.write_best_model(f1score)
 
                     if earlystopcounter > self.earlystopgap:
                         print('early stop at epoch:' + str(epoch))
@@ -415,11 +444,13 @@ def main():
     parser = argparse.ArgumentParser()
 
     parser.add_argument('--lr', type=float, default=1e-5)
-    parser.add_argument('--maxlen', type=int, default=224)
+    parser.add_argument('--maxlentext', type=int, default=224)
+    parser.add_argument('--maxlenphrase', type=int, default=96)
     parser.add_argument('--devbat', type=int, default=500)
     parser.add_argument('--wd', type=float, default=0.01)
-    parser.add_argument('--bertmodeltype',type=str, default='rawdistilbert')
+    parser.add_argument('--bertmodeltype',type=str, default='bert')
     parser.add_argument('--modeltype', type=str, default='rnn')
+    parser.add_argument('--rnntype', type=str, default='lstm')
 
     args = parser.parse_args()
 
@@ -427,8 +458,8 @@ def main():
     categoriesfile = 'data/dontpatronizeme_v1.4/dontpatronizeme_categories.tsv'
 
 
-    traineval = TrainEval(pclfile,categoriesfile,bertmodeltype=args.bertmodeltype,learningrate=args.lr,maxlen=args.maxlen,devbatchsize=args.devbat,weightdecay=args.wd)
-    traineval.train_eval_bertmodels()
+    traineval = TrainEval(pclfile=pclfile,categoryfile=categoriesfile,modeltype=args.modeltype, bertmodeltype=args.bertmodeltype,rnntype=args.rnntype,learningrate=args.lr,maxlentext=args.maxlentext,maxlenphrase=args.maxlenphrase,devbatchsize=args.devbat,weightdecay=args.wd)
+    traineval.train_eval_models()
 
 
 if __name__ == "__main__":

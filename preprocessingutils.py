@@ -35,9 +35,13 @@ class PreprocessingUtils():
         self.presuppositionadverbs = {'more likely','likely to','typical','yet','also','never','most','just','already','still','even','really','much rather','ever','ever again','such','otherwise','rather than','also','usually'}
 
 
-    def get_train_test_data(self,usetalkdown=False):
+    def get_train_test_data(self,usetalkdown=False,testdata=False):
 
         self.refinedlabelsdev = pd.read_csv('refinedlabelsdev.csv')
+
+        if testdata == True:
+            self.testdata = pd.read_csv(self.datafiletest,sep='\t')
+            self.testdata.set_index('lineid')
 
         if os.path.isfile('traindata.tsv') and os.path.isfile('devdata.tsv'):
             self.traindata = pd.read_csv('traindata.tsv',sep='\t')
@@ -50,8 +54,8 @@ class PreprocessingUtils():
             self.traindata.set_index('lineid')
             self.devdata.set_index('lineid')
 
-        else:
 
+        else:
             lengths = []
             phraselengths = []
 
@@ -69,6 +73,7 @@ class PreprocessingUtils():
             self.devdata = data.loc[mask]
 
             if usetalkdown == True:
+                talkdowndata = pd.read_csv(self.talkdowndatafile, sep='\t')
                 self.traindata = pd.concat([self.traindata,talkdowndata],axis=0)
 
             self.traindata.set_index('lineid')
