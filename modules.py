@@ -226,7 +226,7 @@ class BertModels(nn.Module):
             self.model = DistilBertForSequenceClassification.from_pretrained('distilbert-base-cased')
         elif bertmodeltype == 'xlnet':
             self.tokenizer = XLNetTokenizer.from_pretrained('xlnet-base-cased')
-            self.model = XLNetForSequenceClassification('xlnet-base-cased')
+            self.model = XLNetForSequenceClassification.from_pretrained('xlnet-base-cased')
         elif bertmodeltype == 'roberta':
             self.tokenizer = RobertaTokenizer.from_pretrained('roberta-base')
             self.model = RobertaForSequenceClassification.from_pretrained('roberta-base')
@@ -236,19 +236,21 @@ class BertModels(nn.Module):
         self.maxlen = maxlen
 
 
-    def forward(self,dataframe):
+    def forward(self,dataframe,test=False):
 
         texts = dataframe['text'].tolist()
         phrases = dataframe['phrase'].tolist()
 
-        labels = dataframe['label'].tolist()
-        labels = torch.LongTensor(labels)
-        labels = labels.to(self.device)
-
         tokens = self.tokenizer(text=phrases,text_pair=texts,padding='max_length',return_tensors='pt',max_length=self.maxlen,truncation=True)
         tokens.to(self.device)
 
-        output = self.model(labels=labels, **tokens)
+        if test == False:
+            labels = dataframe['label'].tolist()
+            labels = torch.LongTensor(labels)
+            labels = labels.to(self.device)
+            output = self.model(labels=labels, **tokens)
+        else:
+            output = self.model(**tokens)
 
         return output.loss, output.logits
 
@@ -293,13 +295,13 @@ class TrainEval():
             self.loss.to(self.device)
 
 
-        self.scheduler = torch.optim.lr_scheduler.MultiStepLR(self.optimizer,milestones=[1000,5000],gamma=0.1)
+        #self.scheduler = torch.optim.lr_scheduler.MultiStepLR(self.optimizer,milestones=[1000,5000],gamma=0.1)
 
-        self.epochs = 1000000
+        self.epochs = 500
         self.samplesize = 32
 
-        self.evalstep = 50
-        self.earlystopgap = 30
+        self.evalstep = 100
+        self.earlystopgap = 20
         self.maxdevf1 = float('-inf')
 
         self.checkpointfile = 'data/checkpoint/model.pt'
@@ -352,7 +354,7 @@ class TrainEval():
             self.optimizer.step()
             self.optimizer.zero_grad()
 
-            self.scheduler.step()
+            #self.scheduler.step()
 
             self.writer.add_scalar('train_loss', loss.item(), epoch)
 
@@ -444,12 +446,12 @@ def main():
     parser = argparse.ArgumentParser()
 
     parser.add_argument('--lr', type=float, default=1e-5)
-    parser.add_argument('--maxlentext', type=int, default=224)
+    parser.add_argument('--maxlentext', type=int, default=256)
     parser.add_argument('--maxlenphrase', type=int, default=96)
     parser.add_argument('--devbat', type=int, default=500)
     parser.add_argument('--wd', type=float, default=0.01)
-    parser.add_argument('--bertmodeltype',type=str, default='bert')
-    parser.add_argument('--modeltype', type=str, default='rnn')
+    parser.add_argument('--bertmodeltype',type=str, default='xlnet')
+    parser.add_argument('--modeltype', type=str, default='bert')
     parser.add_argument('--rnntype', type=str, default='lstm')
 
     args = parser.parse_args()

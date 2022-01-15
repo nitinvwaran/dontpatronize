@@ -1,5 +1,6 @@
 import pandas as pd
 import torch
+import torch.nn as nn
 import argparse
 
 from preprocessingutils import PreprocessingUtils
@@ -34,6 +35,8 @@ class Inference():
         self.device = torch.device("cuda:0" if torch.cuda.is_available() else "cpu")
         self.model.to(self.device)
 
+        self.softmax = nn.Softmax()
+
     def inference(self):
 
         self.model.eval()
@@ -51,20 +54,28 @@ class Inference():
 
                 df.reset_index(drop=True, inplace=True)
                 if self.modeltype == 'bert':
-                    _, logit = self.model(df)
+                    _, logit = self.model(df,test=True)
                 else:
                     logit = self.model(df)
 
+                logitsdf = pd.DataFrame(logit.tolist(), columns=['zerologit', 'onelogit']).reset_index(drop=True)
+                probdf = pd.DataFrame(self.softmax(logit).tolist(), columns=['zeroprob', 'oneprob']).reset_index(
+                    drop=True)
                 p = torch.argmax(logit, dim=1)
 
                 df['preds'] = p.tolist()
+                df = pd.concat([df, logitsdf, probdf], axis=1, ignore_index=True)
 
                 preds = preds.append(df, ignore_index=True)
 
+            preds.columns = ['lineid', 'category', 'text', 'phrase', 'preds', 'zerologit', 'onelogit',
+                             'zeroprob', 'oneprob']
+
+            preds.to_csv('data/proba/testproba/testproba_'+ self.modeltype + '_' + self.bertmodeltype + '_' + self.rnntype + '.tsv',sep='\t',index=False)
             preds = preds.loc[preds.groupby(['lineid'])['preds'].idxmax()].reset_index(drop=True)
             preds.set_index('lineid')
 
-            preds.to_csv('inference_' + self.modeltype + '_' + self.bertmodeltype + '_' + self.rnntype + '.tsv',sep='\t')
+            preds.to_csv('data/inference/inference_' + self.modeltype + '_' + self.bertmodeltype + '_' + self.rnntype + '.tsv',sep='\t',index=False)
 
 
 def main():
@@ -72,19 +83,23 @@ def main():
     parser = argparse.ArgumentParser()
 
 
-    parser.add_argument('--maxlentext', type=int, default=224)
+    parser.add_argument('--maxlentext', type=int, default=256)
     parser.add_argument('--maxlenphrase', type=int, default=96)
 
     args = parser.parse_args()
 
     with open('bestmodel.txt','r') as i:
         for line in i.readlines():
-            bestmodelpath = str(line).strip().split()[0]
+            bestmodelpath = str(line).strip().split(',')[0]
 
     params = bestmodelpath.split('_')
     modeltype = params[1].strip()
     bertmodeltype = params[2].strip()
     rnntype = params[3].strip()
+
+    print ('Model Type:' + modeltype)
+    print ('Bert Model Type:' + bertmodeltype)
+    print ('RNN Type:' + rnntype)
 
 
     pclfile = 'data/dontpatronizeme_v1.4/dontpatronizeme_pcl.tsv'

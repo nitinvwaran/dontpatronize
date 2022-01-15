@@ -38,6 +38,7 @@ class PreprocessingUtils():
     def get_train_test_data(self,usetalkdown=False,testdata=False):
 
         self.refinedlabelsdev = pd.read_csv('refinedlabelsdev.csv')
+        self.get_devids()
 
         if testdata == True:
             self.testdata = pd.read_csv(self.datafiletest,sep='\t')
