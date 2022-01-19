@@ -35,68 +35,93 @@ class PreprocessingUtils():
         self.presuppositionadverbs = {'more likely','likely to','typical','yet','also','never','most','just','already','still','even','really','much rather','ever','ever again','such','otherwise','rather than','also','usually'}
 
 
-    def get_train_test_data(self,usetalkdown=False,testdata=False):
+    def get_train_test_data(self,usetalkdown=False,testdata=False,forcnn=False):
 
         self.refinedlabelsdev = pd.read_csv('refinedlabelsdev.csv')
         self.get_devids()
 
-        if testdata == True:
-            self.testdata = pd.read_csv(self.datafiletest,sep='\t')
-            self.testdata.set_index('lineid')
+        lengths = []
+        phraselengths = []
 
-        if os.path.isfile('traindata.tsv') and os.path.isfile('devdata.tsv'):
-            self.traindata = pd.read_csv('traindata.tsv',sep='\t')
-            self.devdata = pd.read_csv('devdata.tsv',sep='\t')
+        if forcnn == True:
 
-            if usetalkdown == True:
-                talkdowndata = pd.read_csv(self.talkdowndatafile, sep='\t')
-                self.traindata = pd.concat([self.traindata,talkdowndata],axis=0)
+            if testdata == True:
 
-            self.traindata.set_index('lineid')
-            self.devdata.set_index('lineid')
+                if not os.path.isfile('data/preprocessedtestcnn.tsv'):
+                    self.preprocess_test_for_cnn()
+
+                self.testdata = pd.read_csv('data/preprocessedtestcnn.tsv',sep='\t')
+                self.testdata.set_index('lineid')
+
+            if os.path.isfile('traindatacnn.tsv') and os.path.isfile('devdatacnn.tsv'):
+                self.traindata = pd.read_csv('traindatacnn.tsv', sep='\t')
+                self.devdata = pd.read_csv('devdatacnn.tsv', sep='\t')
+
+                self.traindata.set_index('lineid')
+                self.devdata.set_index('lineid')
+
+            else:
+
+                if not os.path.isfile('data/preprocessedcnn.tsv'):
+                    self.preprocess_for_cnn()
+
+                data = pd.read_csv('data/preprocessedcnn.tsv',sep='\t')
+                data = data.sample(frac=1).reset_index(drop=True)
+
+                for _,row in data.iterrows():
+                    lengths.append(len(str(row['text']).split()))
+
+                mask = data['lineid'].isin(self.devids)
+                self.traindata = data.loc[~mask]
+                self.devdata = data.loc[mask]
+
+                self.traindata.set_index('lineid')
+                self.devdata.set_index('lineid')
+
+                self.traindata.to_csv('traindatacnn.tsv', sep='\t', index=False)
+                self.devdata.to_csv('devdatacnn.tsv', sep='\t', index=False)
 
 
         else:
-            lengths = []
-            phraselengths = []
+            if testdata == True:
+                self.testdata = pd.read_csv(self.datafiletest,sep='\t')
+                self.testdata.set_index('lineid')
 
-            data = pd.read_csv(self.datafile,sep='\t')
-            data = data.sample(frac=1).reset_index(drop=True)
+            if os.path.isfile('traindata.tsv') and os.path.isfile('devdata.tsv'):
+                self.traindata = pd.read_csv('traindata.tsv',sep='\t')
+                self.devdata = pd.read_csv('devdata.tsv',sep='\t')
 
-            for _,row in data.iterrows():
-                lengths.append(len(str(row['text']).split()))
-                phraselengths.append(len(str(row['phrase']).split()))
+                if usetalkdown == True:
+                    talkdowndata = pd.read_csv(self.talkdowndatafile, sep='\t')
+                    self.traindata = pd.concat([self.traindata,talkdowndata],axis=0)
 
-            self.get_devids()
-
-            mask = data['lineid'].isin(self.devids)
-            self.traindata = data.loc[~mask]
-            self.devdata = data.loc[mask]
-
-            if usetalkdown == True:
-                talkdowndata = pd.read_csv(self.talkdowndatafile, sep='\t')
-                self.traindata = pd.concat([self.traindata,talkdowndata],axis=0)
-
-            self.traindata.set_index('lineid')
-            self.devdata.set_index('lineid')
-
-            self.traindata.to_csv('traindata.tsv',sep='\t',index=False)
-            self.devdata.to_csv('devdata.tsv',sep='\t',index=False)
+                self.traindata.set_index('lineid')
+                self.devdata.set_index('lineid')
 
 
-            print('text stats')
-            print(np.percentile(lengths,50))
-            print(np.percentile(lengths, 90))
-            print(np.percentile(lengths, 95))
-            print(np.percentile(lengths, 99))
-            print(max(lengths))
-    
-            print('phrase stats')
-            print(np.percentile(phraselengths, 50))
-            print(np.percentile(phraselengths, 90))
-            print(np.percentile(phraselengths, 95))
-            print(np.percentile(phraselengths, 99))
-            print(max(phraselengths))
+            else:
+
+
+                data = pd.read_csv(self.datafile,sep='\t')
+                data = data.sample(frac=1).reset_index(drop=True)
+
+                for _,row in data.iterrows():
+                    lengths.append(len(str(row['text']).split()))
+                    phraselengths.append(len(str(row['phrase']).split()))
+
+                mask = data['lineid'].isin(self.devids)
+                self.traindata = data.loc[~mask]
+                self.devdata = data.loc[mask]
+
+                if usetalkdown == True:
+                    talkdowndata = pd.read_csv(self.talkdowndatafile, sep='\t')
+                    self.traindata = pd.concat([self.traindata,talkdowndata],axis=0)
+
+                self.traindata.set_index('lineid')
+                self.devdata.set_index('lineid')
+
+                self.traindata.to_csv('traindata.tsv',sep='\t',index=False)
+                self.devdata.to_csv('devdata.tsv',sep='\t',index=False)
 
 
     def get_categoriesids(self):
@@ -255,6 +280,24 @@ class PreprocessingUtils():
 
                     dataf.write(str(lineid) + '\t' + category.strip() + '\t' + ' '.join(newline) + '\t' + phrase + '\t' + str(label) + '\n')
 
+    def preprocess_test_for_cnn(self):
+
+        with open('data/preprocessedtestcnn.tsv','w') as out:
+            out.write('lineid' + '\t' + 'text' + '\n')
+
+            with open(self.testfile,'r') as test:
+                for line in tqdm(test.readlines()):
+                    line = line.strip()
+
+                    if line != '':
+                        lineid = line.split('\t')[0]
+                        line = line.split('\t')[-1]
+
+                        line = self.clean_string(line)
+
+                        out.write(str(lineid) + '\t' + line + '\n')
+
+
 
     def preprocess_test(self):
 
@@ -307,6 +350,31 @@ class PreprocessingUtils():
                             testfile2lineids.add(lineid)
 
         assert len(testfile2lineids) == len(testfilelineids)
+
+    def preprocess_for_cnn(self):
+
+        with open('data/preprocessedcnn.tsv','w') as dataf:
+            dataf.write('lineid' + '\t' + 'text' + '\t' + 'label' + '\n')
+
+            with open(self.pclfile,'r') as pclf:
+                for line in tqdm(pclf.readlines()):
+
+                    line = line.strip()
+                    if line != '':
+                        lineid = int(line.split('\t')[0])
+                        label = int(line.split('\t')[-1])
+                        if label in [2,3,4]:
+                            label = 1
+                        else:
+                            label = 0
+
+                        line = line.split('\t')[4]
+
+                        line = self.clean_string(line)
+
+                        dataf.write(
+                            str(lineid) + '\t' + line.strip() + '\t' + str(label) + '\n')
+
 
     def preprocess(self):
 

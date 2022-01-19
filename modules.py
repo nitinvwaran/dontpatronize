@@ -33,9 +33,11 @@ class CNNBert(nn.Module):
             self.tokenizer = XLNetTokenizer.from_pretrained('xlnet-base-cased')
             self.model = XLNetModel.from_pretrained('xlnet-base-cased')
 
+        self.device = torch.device("cuda:0" if torch.cuda.is_available() else "cpu")
+
         self.model.to(self.device)
 
-        self.device = torch.device("cuda:0" if torch.cuda.is_available() else "cpu")
+
 
         self.relu = nn.ReLU()
 
@@ -44,6 +46,7 @@ class CNNBert(nn.Module):
 
         self.maxlen = maxlen
 
+
         self.conv1 = nn.Conv1d(768, 128, 9)
         self.conv1.to(self.device)
         self.pool1 = nn.MaxPool1d(self.maxlen - 9)
@@ -51,35 +54,36 @@ class CNNBert(nn.Module):
 
         self.conv2 = nn.Conv1d(768, 128, 7)
         self.conv2.to(self.device)
-        self.pool2 = nn.MaxPool1d(self.maxlen - 7)
+        self.pool2 = nn.MaxPool1d(self.maxlen // 2)
         self.pool2.to(self.device)
 
         self.conv3 = nn.Conv1d(768, 128, 5)
         self.conv3.to(self.device)
-        self.pool3 = nn.MaxPool1d(self.maxlen // 2)
+        self.pool3 = nn.MaxPool1d(self.maxlen // 4)
         self.pool3.to(self.device)
 
         self.conv4 = nn.Conv1d(768, 128, 3)
         self.conv4.to(self.device)
-        self.pool4 = nn.MaxPool1d(self.maxlen // 2)
+        self.pool4 = nn.MaxPool1d(self.maxlen // 4)
         self.pool4.to(self.device)
 
         self.convavg = nn.AvgPool1d(5)
         self.convavg.to(self.device)
 
-        self.linear1 = nn.Linear(128, 2)
-        self.linear2 = nn.Linear(64, 2)
+        self.linear1 = nn.Linear(128, 32)
+        self.linear2 = nn.Linear(32, 2)
         self.linear1.to(self.device)
         self.linear2.to(self.device)
 
 
     def forward(self,dataframe):
 
-        sentences = dataframe['phrase'].tolist()
+        sentences = dataframe['text'].tolist()
 
-        inp = self.bertmodel.tokenizer(sentences, max_length=self.maxlen, padding='max_length', truncation=True,
+        inp = self.tokenizer(sentences, max_length=self.maxlen, padding='max_length', truncation=True,
                                        add_special_tokens=False, return_tensors='pt')
         inp.to(self.device)
+
         output = self.model(**inp)
         lasthiddenstate = output.last_hidden_state
         lasthiddenstate.to(self.device)
@@ -101,6 +105,7 @@ class CNNBert(nn.Module):
 
 
         feats = torch.cat((feats1, feats2,feats3,feats4),dim=2)
+        #feats = torch.cat((feats2,feats3,feats4),dim=2)
         feats = self.convavg(feats)
         feats = torch.squeeze(feats,dim=2)
 
@@ -109,14 +114,14 @@ class CNNBert(nn.Module):
 
         feats = self.relu(self.linear1(feats))
         feats = self.dropout(feats)
-        logits = self.linear1(feats)
+        logits = self.linear2(feats)
 
 
         return logits
 
 
 class LSTMAttention(nn.Module):
-    def __init__(self,rnntype='lstm',bertmodeltype='rawdistilbert',maxlentext=128,maxlenphrase=64):
+    def __init__(self,rnntype='lstm',bertmodeltype='rawdistilbert',maxlentext=128,maxlenphrase=64,hiddensize=256,numlayers=2):
 
         super(LSTMAttention,self).__init__()
 
@@ -137,16 +142,17 @@ class LSTMAttention(nn.Module):
 
         self.model.to(self.device)
 
-        self.hiddensize = 256
-        self.numlayers = 2
+        self.hiddensize = hiddensize
+        self.numlayers = numlayers
         self.rnntype = rnntype
 
         self.maxlentext = maxlentext
         self.maxlenphrase = maxlenphrase
 
-        self.rnndropout = 0.3
+        self.rnndropout = 0.5
 
-        if self.lstmtype == 'lstm':
+        print ('Using lstm type:' + str(self.rnntype))
+        if self.rnntype == 'lstm':
             self.rnnphrase = nn.LSTM(input_size=768,dropout=self.rnndropout,hidden_size=self.hiddensize, num_layers=self.numlayers, batch_first=True,bidirectional=True)
             self.rnnphrase.to(self.device)
 
@@ -162,6 +168,7 @@ class LSTMAttention(nn.Module):
             self.rnntext.to(self.device)
 
 
+        self.inputdropout = nn.Dropout(p=0.1)
 
         self.attn = nn.Linear(self.hiddensize * 2, self.hiddensize * 2)
         self.attn.to(self.device)
@@ -170,6 +177,7 @@ class LSTMAttention(nn.Module):
 
         self.logitlinear = nn.Linear(self.hiddensize * 2, 2)
         self.logitlinear.to(self.device)
+        self.dropout = nn.Dropout(p=0.5)
 
         self.relu = nn.ReLU()
 
@@ -194,9 +202,16 @@ class LSTMAttention(nn.Module):
         lasthiddenstatephrase = outputphrase['last_hidden_state']
         lasthiddenstatephrase.to(self.device)
 
+        lasthiddenstatetext = self.inputdropout(lasthiddenstatetext)
+        lasthiddenstatephrase = self.inputdropout(lasthiddenstatephrase)
+
         lstmtext, _ = self.rnntext(lasthiddenstatetext)
-        lstmphrase, (hn,cn) = self.rnnphrase(lasthiddenstatephrase)
-        hn = hn[:-2]
+        if self.rnntype == 'lstm':
+            lstmphrase, (hn,cn) = self.rnnphrase(lasthiddenstatephrase)
+        else:
+            lstmphrase, hn = self.rnnphrase(lasthiddenstatephrase)
+
+        hn = hn[-2:]
         hn = torch.transpose(hn, 0, 1)
         hn = torch.reshape(hn, (len(dataframe), -1))
 
@@ -206,6 +221,7 @@ class LSTMAttention(nn.Module):
         context = torch.bmm(lstmtext.transpose(1, 2), attnweights.unsqueeze(2)).squeeze(2)
 
         attnhidden = self.relu(self.concat_linear(torch.cat((context, hn), dim=1)))
+        attnhidden = self.dropout(attnhidden)
 
         logits = self.logitlinear(attnhidden)
 
@@ -257,7 +273,7 @@ class BertModels(nn.Module):
 
 class TrainEval():
 
-    def __init__(self,pclfile,categoryfile,learningrate=1e-5,modeltype='rnn',bertmodeltype='rawdistilbert',rnntype='lstm',maxlentext=256,maxlenphrase=64,devbatchsize=1000,weightdecay=0):
+    def __init__(self,pclfile,categoryfile,learningrate=1e-5,modeltype='rnn',bertmodeltype='rawdistilbert',rnntype='lstm',maxlentext=256,maxlenphrase=64,devbatchsize=1000,weightdecay=0.01,bestmodelname='bestmodel.txt',hiddensize=256,numlayers=2,forcnn=False):
 
         if os.path.isdir('tensorboarddir/'):
             shutil.rmtree('tensorboarddir/')
@@ -268,7 +284,7 @@ class TrainEval():
 
         print ('Starting pre-processing')
         self.preprocess = PreprocessingUtils(pclfile,categoryfile,testfile=None)
-        self.preprocess.get_train_test_data(usetalkdown=False)
+        self.preprocess.get_train_test_data(usetalkdown=False,forcnn=forcnn)
 
         self.modeltype = modeltype
         self.bertmodeltype = bertmodeltype
@@ -277,10 +293,12 @@ class TrainEval():
 
         self.devbatchsize=devbatchsize
 
+        self.bestmodelname = bestmodelname
+
         if modeltype == 'bert':
             self.model = BertModels(bertmodeltype=bertmodeltype,maxlen=maxlentext)
         elif modeltype == 'rnn':
-            self.model = LSTMAttention(rnntype=rnntype,bertmodeltype=bertmodeltype,maxlentext=maxlentext,maxlenphrase=maxlenphrase)
+            self.model = LSTMAttention(rnntype=rnntype,bertmodeltype=bertmodeltype,maxlentext=maxlentext,maxlenphrase=maxlenphrase,hiddensize=hiddensize,numlayers=numlayers)
         else: # cnn
             self.model = CNNBert(bertmodeltype=bertmodeltype,maxlen=maxlentext)
 
@@ -291,16 +309,16 @@ class TrainEval():
         self.optimizer = torch.optim.AdamW(self.model.parameters(), lr=learningrate,weight_decay=weightdecay)
 
         if self.modeltype != 'bert':
-            self.loss = nn.CrossEntropyLoss()
+            self.loss = nn.CrossEntropyLoss(weight=torch.FloatTensor([1,10]))
             self.loss.to(self.device)
 
 
-        #self.scheduler = torch.optim.lr_scheduler.MultiStepLR(self.optimizer,milestones=[1000,5000],gamma=0.1)
+        #self.scheduler = torch.optim.lr_scheduler.MultiStepLR(self.optimizer,milestones=[5000],gamma=0.1)
 
-        self.epochs = 500
+        self.epochs = 1000000
         self.samplesize = 32
 
-        self.evalstep = 100
+        self.evalstep = 500
         self.earlystopgap = 20
         self.maxdevf1 = float('-inf')
 
@@ -313,10 +331,10 @@ class TrainEval():
         torch.manual_seed(seed)
 
     def write_best_model(self,f1score):
-        with open('bestmodel.txt','w') as o:
+        with open(self.bestmodelname,'w') as o:
             o.write(self.bestmodel + ',' + str(f1score))
 
-    def train_eval_models(self):
+    def train_eval_cnn_models(self,checkpointfile=None):
 
         earlystopcounter = 0
 
@@ -324,6 +342,122 @@ class TrainEval():
         negtraindata = self.preprocess.traindata.loc[self.preprocess.traindata['label'] == 0]
 
         torch.cuda.empty_cache()
+
+        if checkpointfile is not None:
+            checkpoint = torch.load(checkpointfile)
+            self.model.load_state_dict(checkpoint['model_state_dict'])
+            self.optimizer.load_state_dict(checkpoint['optimizer_state_dict'])
+
+        self.set_seed(42)
+        self.optimizer.zero_grad()
+
+        for epoch in range(1, self.epochs):
+
+            self.model.train()
+
+            possample = postraindata.sample(n=1)
+            negsample = negtraindata.sample(n=self.samplesize - 1)
+
+            sample = pd.concat([possample, negsample], ignore_index=True)
+            sample = sample.sample(frac=1).reset_index(drop=True)
+
+            logits = self.model(sample)
+            labels = sample['label'].tolist()
+            labels = torch.LongTensor(labels)
+            labels = labels.to(self.device)
+
+            loss = self.loss(logits,labels)
+
+            loss.backward()
+
+            self.optimizer.step()
+            self.optimizer.zero_grad()
+
+            self.writer.add_scalar('train_loss', loss.item(), epoch)
+
+            if epoch % self.evalstep == 0: # run evaluation
+
+                earlystopcounter += 1
+
+                self.model.eval()
+
+                with torch.no_grad():
+
+                    preds = pd.DataFrame()
+
+                    devloss = 0
+
+                    for j in range(0, len(self.preprocess.devdata),self.devbatchsize):
+
+                        if j + self.devbatchsize > len(self.preprocess.devdata):
+                            df = self.preprocess.devdata.iloc[j:len(self.preprocess.devdata)]
+                        else:
+                            df = self.preprocess.devdata.iloc[j:j + self.devbatchsize]
+
+                        df.reset_index(drop=True,inplace=True)
+
+                        labels = df['label'].tolist()
+                        labels = torch.LongTensor(labels)
+                        labels = labels.to(self.device)
+
+                        logit = self.model(df)
+
+                        loss = self.loss(logit,labels)
+
+                        logitsdf = pd.DataFrame(logit.tolist(),columns=['zerologit','onelogit']).reset_index(drop=True)
+                        probdf = pd.DataFrame(self.softmax(logit).tolist(),columns=['zeroprob','oneprob']).reset_index(drop=True)
+
+                        devloss += loss.item()
+                        p = torch.argmax(logit, dim=1)
+
+                        df['preds'] = p.tolist()
+                        df = pd.concat([df,logitsdf,probdf],axis=1,ignore_index=True)
+
+                        preds = preds.append(df,ignore_index=True)
+
+                    preds.columns = ['lineid','text','label','preds','zerologit','onelogit','zeroprob','oneprob']
+                    preds = preds.set_index('lineid')
+
+                    preds = preds.loc[self.preprocess.devids]
+
+
+                    f1score = f1_score(preds['label'].tolist(), preds['preds'].tolist())
+
+                    self.writer.add_scalar('dev_loss', devloss, int(epoch / self.evalstep))
+                    self.writer.add_scalar('dev_f1', f1score, int(epoch / self.evalstep))
+
+                    print('dev f1 and loss: ' + str(f1score) + ',' + str(devloss))
+
+                    if f1score > self.maxdevf1:
+
+                        self.maxdevf1 = f1score
+                        self.bestmodel = self.checkpointfile.replace('.pt', '_' + self.modeltype + '_' + self.bertmodeltype + '_' + self.rnntype + '_' + str(f1score) +  '.pt')
+
+                        torch.save({'epoch':epoch,'model_state_dict':self.model.state_dict(),'optimizer_state_dict':self.optimizer.state_dict()}, self.bestmodel)
+                        preds.to_csv('data/errors/errors_' + self.modeltype + '_' + self.bertmodeltype + '_' + self.rnntype + '_' +  str(f1score) + '.csv')
+
+                        earlystopcounter = 0
+
+                        self.write_best_model(f1score)
+
+                    if earlystopcounter > self.earlystopgap:
+                        print('early stop at epoch:' + str(epoch))
+                        break
+
+
+    def train_eval_models(self,checkpointfile=None):
+
+        earlystopcounter = 0
+
+        postraindata = self.preprocess.traindata.loc[self.preprocess.traindata['label'] == 1]
+        negtraindata = self.preprocess.traindata.loc[self.preprocess.traindata['label'] == 0]
+
+        torch.cuda.empty_cache()
+
+        if checkpointfile is not None:
+            checkpoint = torch.load(checkpointfile)
+            self.model.load_state_dict(checkpoint['model_state_dict'])
+            self.optimizer.load_state_dict(checkpoint['optimizer_state_dict'])
 
         self.set_seed(42)
         self.optimizer.zero_grad()
@@ -427,7 +561,7 @@ class TrainEval():
                         self.maxdevf1 = f1score
                         self.bestmodel = self.checkpointfile.replace('.pt', '_' + self.modeltype + '_' + self.bertmodeltype + '_' + self.rnntype + '_' + str(f1score) +  '.pt')
 
-                        torch.save(self.model.state_dict(), self.bestmodel)
+                        torch.save({'epoch':epoch,'model_state_dict':self.model.state_dict(),'optimizer_state_dict':self.optimizer.state_dict()}, self.bestmodel)
                         devlabels.to_csv('data/errors/errors_' + self.modeltype + '_' + self.bertmodeltype + '_' + self.rnntype + '_' +  str(f1score) + '.csv')
                         preds2.to_csv('data/proba/blendeddata_'  + self.modeltype + '_' + self.bertmodeltype + '_' + self.rnntype + '_' + str(f1score) +  '.csv')
 
@@ -445,23 +579,34 @@ def main():
 
     parser = argparse.ArgumentParser()
 
-    parser.add_argument('--lr', type=float, default=1e-5)
-    parser.add_argument('--maxlentext', type=int, default=256)
-    parser.add_argument('--maxlenphrase', type=int, default=96)
-    parser.add_argument('--devbat', type=int, default=500)
+    parser.add_argument('--lr', type=float, default=1e-6)
+    parser.add_argument('--maxlentext', type=int, default=224)
+    parser.add_argument('--maxlenphrase', type=int, default=64)
+    parser.add_argument('--devbat', type=int, default=250)
     parser.add_argument('--wd', type=float, default=0.01)
-    parser.add_argument('--bertmodeltype',type=str, default='xlnet')
-    parser.add_argument('--modeltype', type=str, default='bert')
+    parser.add_argument('--bertmodeltype',type=str, default='rawdistilbert')
+    parser.add_argument('--modeltype', type=str, default='cnn')
     parser.add_argument('--rnntype', type=str, default='lstm')
+    parser.add_argument('--bestmodelname', type=str, default='bestmodel.txt')
+    parser.add_argument('--hiddensize', type=int, default=256)
+    parser.add_argument('--numlayers', type=int, default=2)
+
 
     args = parser.parse_args()
 
     pclfile = 'data/dontpatronizeme_v1.4/dontpatronizeme_pcl.tsv'
     categoriesfile = 'data/dontpatronizeme_v1.4/dontpatronizeme_categories.tsv'
 
+    if args.modeltype == 'cnn':
+        forcnn = True
+    else:
+        forcnn = False
 
-    traineval = TrainEval(pclfile=pclfile,categoryfile=categoriesfile,modeltype=args.modeltype, bertmodeltype=args.bertmodeltype,rnntype=args.rnntype,learningrate=args.lr,maxlentext=args.maxlentext,maxlenphrase=args.maxlenphrase,devbatchsize=args.devbat,weightdecay=args.wd)
-    traineval.train_eval_models()
+    traineval = TrainEval(pclfile=pclfile,categoryfile=categoriesfile,modeltype=args.modeltype, bertmodeltype=args.bertmodeltype,rnntype=args.rnntype,learningrate=args.lr,maxlentext=args.maxlentext,maxlenphrase=args.maxlenphrase,devbatchsize=args.devbat,weightdecay=args.wd,bestmodelname=args.bestmodelname,hiddensize=args.hiddensize,numlayers=args.numlayers,forcnn=forcnn)
+    if args.modeltype != 'cnn':
+        traineval.train_eval_models()
+    else:
+        traineval.train_eval_cnn_models()
 
 
 if __name__ == "__main__":
