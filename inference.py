@@ -8,7 +8,7 @@ from modules import LSTMAttention, BertModels,CNNBert
 from tqdm import tqdm
 
 class Inference():
-    def __init__(self,bestmodelpath, pclfile,categoriesfile,testfile,modeltype='rnn',bertmodeltype='rawdistilbert',devbatchsize=500,rnntype='lstm',maxlenphrase=256,maxlentext=256,hiddensize=256,numlayers=2,forcnn=False):
+    def __init__(self,bestmodelpath, pclfile,categoriesfile,testfile,modeltype='rnn',bertmodeltype='rawdistilbert',devbatchsize=250,rnntype='lstm',maxlenphrase=256,maxlentext=256,hiddensize=256,numlayers=2,forcnn=False):
 
         self.pclfile = pclfile
         self.categoriesfile = categoriesfile
@@ -124,7 +124,7 @@ def main():
     parser = argparse.ArgumentParser()
 
 
-    parser.add_argument('--maxlentext', type=int, default=128)
+    parser.add_argument('--maxlentext', type=int, default=224)
     parser.add_argument('--maxlenphrase', type=int, default=64)
     parser.add_argument('--hiddensize', type=int, default=256)
     parser.add_argument('--numlayers', type=int, default=2)
@@ -152,11 +152,13 @@ def main():
 
     pclfile = 'data/dontpatronizeme_v1.4/dontpatronizeme_pcl.tsv'
     categoriesfile = 'data/dontpatronizeme_v1.4/dontpatronizeme_categories.tsv'
+    testfile = 'data/dontpatronizeme_v1.4/testdata.tsv'
 
-    inf = Inference(bestmodelpath=bestmodelpath,pclfile=pclfile,categoriesfile=categoriesfile,testfile=None,maxlentext=args.maxlentext,maxlenphrase=args.maxlenphrase,devbatchsize=500,modeltype=modeltype,bertmodeltype=bertmodeltype,rnntype=rnntype,hiddensize=args.hiddensize,numlayers=args.numlayers,forcnn=forcnn)
+    inf = Inference(bestmodelpath=bestmodelpath,pclfile=pclfile,categoriesfile=categoriesfile,testfile=testfile,maxlentext=args.maxlentext,maxlenphrase=args.maxlenphrase,devbatchsize=500,modeltype=modeltype,bertmodeltype=bertmodeltype,rnntype=rnntype,hiddensize=args.hiddensize,numlayers=args.numlayers,forcnn=forcnn)
     if modeltype != 'cnn':
         inf.inference()
     else:
+        print ('inference for cnn')
         inf.inference_cnn()
 
 

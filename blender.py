@@ -6,7 +6,7 @@ from sklearn.svm import SVC
 from sklearn.tree import DecisionTreeClassifier
 from sklearn.preprocessing import StandardScaler
 from sklearn.pipeline import make_pipeline
-from sklearn.model_selection import cross_val_predict
+from sklearn.model_selection import cross_val_predict, GridSearchCV
 
 class Blender():
     def __init__(self,probfile):
@@ -17,7 +17,7 @@ class Blender():
         self.preds = self.data['lineid']
         self.X = self.data.drop(['lineid','label'],axis=1)
 
-        self.probthreshold = 0.3
+        self.probthreshold = 0.5
 
         self.devids = []
         self.devfile = 'data/dev_ids.txt'
@@ -31,11 +31,17 @@ class Blender():
                 self.devids.append(line)
 
     def svcblend(self):
-        clf = SVC(gamma='scale',probability=True, random_state=42,class_weight={0:1,1:5})
-        pipe = make_pipeline(StandardScaler(), clf)
 
-        proba = cross_val_predict(pipe,self.X,self.y,cv=10,method='predict_proba')
-        proba = proba[:,1].squeeze()
+        parameters = {'C':[0.1,1,10],'kernel':['rbf','poly']}
+        scaler = StandardScaler()
+        data = scaler.fit_transform(self.X)
+
+        svc = SVC(gamma='scale',probability=True, random_state=42,class_weight='balanced')
+        clf = GridSearchCV(estimator=svc,param_grid=parameters,n_jobs=-1,cv=10,scoring='f1_micro').fit(data,self.y)
+        print(clf.best_params_)
+
+
+        proba = clf.best_estimator_.predict_proba(data)[:,1].squeeze()
         preds = (proba > self.probthreshold).astype(int)
 
         self.preds = pd.concat([self.preds, pd.Series(preds.tolist())], axis=1)
@@ -49,13 +55,13 @@ class Blender():
 
 
     def logisticblend(self):
-        clf = LogisticRegression(random_state=42,max_iter=500,class_weight={0: 1, 1: 3})
-        pipe = make_pipeline(StandardScaler(),clf)
+        parameters = {'C': [0.1, 1, 10]}
+        lr = LogisticRegression(random_state=42,max_iter=1000,class_weight='balanced')
+        clf = GridSearchCV(estimator=lr,param_grid=parameters,n_jobs=-1,cv=10,scoring='f1_micro').fit(self.X,self.y)
+        print (clf.best_params_)
 
-        proba = cross_val_predict(pipe, self.X, self.y, cv=10, method='predict_proba')
-        proba = proba[:, 1].squeeze()
+        proba = clf.best_estimator_.predict_proba(self.X)[:, 1].squeeze()
         preds = (proba > self.probthreshold).astype(int)
-
 
         self.preds = pd.concat([self.preds,pd.Series(preds.tolist())],axis=1)
         self.preds.columns = ['lineid','blendedpreds']

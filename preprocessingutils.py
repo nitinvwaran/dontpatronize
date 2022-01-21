@@ -23,6 +23,7 @@ class PreprocessingUtils():
         self.punctuation = r'@#^\*|~`<>\\$'
         self.regextag = r'<.+>'
         self.datafile = 'data/preprocesseddata.tsv'
+        self.datafilemulti = 'data/preprocesseddatamulti.tsv'
         self.datafiletest = 'data/preprocesseddatatest.tsv'
         self.talkdowndatafile = 'data/talkdownpreprocesseddata.tsv'
         self.constituentphrasecutoff = 5
@@ -35,13 +36,97 @@ class PreprocessingUtils():
         self.presuppositionadverbs = {'more likely','likely to','typical','yet','also','never','most','just','already','still','even','really','much rather','ever','ever again','such','otherwise','rather than','also','usually'}
 
 
+    def get_train_test_multilabel(self,testdata=False,forcnn=False):
+
+        self.refinedlabelsdev = pd.read_csv('refinedlabelsdev.csv')
+        refinedlabelstrain = pd.read_csv('refinedlabelstrain.csv')
+
+
+        self.get_devids()
+
+        if forcnn == True:
+
+            if testdata == True:
+
+                if not os.path.isfile('data/preprocessedtestcnn.tsv'):
+                    self.preprocess_test_for_cnn()
+
+                self.testdata = pd.read_csv('data/preprocessedtestcnn.tsv',sep='\t')
+                self.testdata.set_index('lineid')
+
+            if os.path.isfile('traindatacnn.tsv') and os.path.isfile('devdatacnn.tsv'):
+                self.traindata = pd.read_csv('traindatacnn.tsv', sep='\t')
+                self.devdata = pd.read_csv('devdatacnn.tsv', sep='\t')
+
+                self.traindata.drop(['label'],axis=1,inplace=True)
+                self.devdata.drop(['label'],axis=1,inplace=True)
+
+                self.traindata = self.traindata.merge(refinedlabelstrain,on='lineid',how='inner')
+                self.devdata = self.devdata.merge(self.refinedlabelsdev, on='lineid', how='inner')
+
+            else:
+
+                if not os.path.isfile('data/preprocessedcnn.tsv'):
+                    self.preprocess_for_cnn()
+
+                data = pd.read_csv('data/preprocessedcnn.tsv',sep='\t')
+                data = data.sample(frac=1).reset_index(drop=True)
+
+                mask = data['lineid'].isin(self.devids)
+                self.traindata = data.loc[~mask]
+                self.devdata = data.loc[mask]
+
+                self.traindata.drop(['label'], axis=1, inplace=True)
+                self.devdata.drop(['label'], axis=1, inplace=True)
+
+                self.traindata = self.traindata.merge(refinedlabelstrain, on='lineid', how='inner')
+                self.devdata = self.devdata.merge(self.refinedlabelsdev, on='lineid', how='inner')
+
+                self.traindata.to_csv('traindatacnn.tsv', sep='\t', index=False)
+                self.devdata.to_csv('devdatacnn.tsv', sep='\t', index=False)
+
+
+        else:
+            if testdata == True:
+
+                if not os.path.isfile(self.datafiletest):
+                    self.preprocess_test()
+
+                self.testdata = pd.read_csv(self.datafiletest,sep='\t')
+
+                self.testdata = self.testdata.set_index('lineid')
+
+            if os.path.isfile('traindatamulti.tsv') and os.path.isfile('devdatamulti.tsv'):
+                self.traindata = pd.read_csv('traindatamulti.tsv',sep='\t')
+                self.devdata = pd.read_csv('devdatamulti.tsv',sep='\t')
+
+            else:
+
+                if not os.path.isfile(self.datafilemulti):
+                    self.preprocess_multilabel()
+
+                data = pd.read_csv(self.datafilemulti,sep='\t')
+                data = data.sample(frac=1).reset_index(drop=True)
+
+
+                mask = data['lineid'].isin(self.devids)
+                self.traindata = data.loc[~mask]
+                self.devdata = data.loc[mask]
+
+
+                self.traindata.to_csv('traindatamulti.tsv',sep='\t',index=False)
+                self.devdata.to_csv('devdatamulti.tsv',sep='\t',index=False)
+
+
+
+
+
     def get_train_test_data(self,usetalkdown=False,testdata=False,forcnn=False):
 
         self.refinedlabelsdev = pd.read_csv('refinedlabelsdev.csv')
-        self.get_devids()
+        self.refinedlabelstrain = pd.read_csv('refinedlabelstrain.csv')
 
-        lengths = []
-        phraselengths = []
+        self.get_devids()
 
         if forcnn == True:
 
@@ -68,9 +153,6 @@ class PreprocessingUtils():
                 data = pd.read_csv('data/preprocessedcnn.tsv',sep='\t')
                 data = data.sample(frac=1).reset_index(drop=True)
 
-                for _,row in data.iterrows():
-                    lengths.append(len(str(row['text']).split()))
-
                 mask = data['lineid'].isin(self.devids)
                 self.traindata = data.loc[~mask]
                 self.devdata = data.loc[mask]
@@ -84,6 +166,9 @@ class PreprocessingUtils():
 
         else:
             if testdata == True:
+                if not os.path.exists(self.datafiletest):
+                    self.preprocess_test()
+
                 self.testdata = pd.read_csv(self.datafiletest,sep='\t')
                 self.testdata.set_index('lineid')
 
@@ -102,12 +187,11 @@ class PreprocessingUtils():
             else:
 
 
+                if not os.path.exists(self.datafile):
+                    self.preprocess()
+
                 data = pd.read_csv(self.datafile,sep='\t')
                 data = data.sample(frac=1).reset_index(drop=True)
-
-                for _,row in data.iterrows():
-                    lengths.append(len(str(row['text']).split()))
-                    phraselengths.append(len(str(row['phrase']).split()))
 
                 mask = data['lineid'].isin(self.devids)
                 self.traindata = data.loc[~mask]
@@ -376,6 +460,8 @@ class PreprocessingUtils():
                             str(lineid) + '\t' + line.strip() + '\t' + str(label) + '\n')
 
 
+
+
     def preprocess(self):
 
         labeledids = set(self.labeledids)
@@ -448,6 +534,98 @@ class PreprocessingUtils():
 
                     dataf.write(str(lineid) + '\t' + category.strip() + '\t' + ' '.join(newline) + '\t' + phrase + '\t' + str(1) + '\n')
 
+    def preprocess_multilabel(self):
+
+        labeledids = set(self.labeledids)
+
+        with open(self.datafilemulti,'w') as dataf:
+            dataf.write('lineid' + '\t' + 'category' + '\t' + 'text' + '\t' + 'phrase' + '\t' + 'unbalanced_power' + '\t' + 'shallowsolution' + '\t' + 'presupposition' + '\t' + 'authorityvoice' + '\t' + 'metaphor' + '\t' + 'compassion' + '\t' + 'poorermerrier' + '\n')
+
+            with open(self.pclfile, 'r') as pclf:
+
+                for line in tqdm(pclf.readlines()):
+
+                    lineid = int(line.split('\t')[0])
+
+                    if lineid not in labeledids:
+
+                        line = line.strip()
+
+                        if line != '':
+
+                            label = int(line.split('\t')[-1])
+
+                            assert label not in [2,3,4]
+                            category = line.split('\t')[2]
+
+                            line = line.split('\t')[4]
+
+                            line = self.clean_string(line)
+                            splits = self.split_string(line)
+
+                            docpos = self.nlp(line)
+                            newline = []
+                            for sent in docpos.sentences:
+                                for word in sent.words:
+                                    if word.upos in ['ADJ','ADV','INTJ','VERB','NOUN','PROPN','PRON','ADP']: newline.append(word.text)
+
+                            consts = set()
+                            for split in splits:
+                                consts.update(self.get_const_parses(split))
+
+                            if len(consts) > 0:
+                                for const in consts:
+
+                                    #startindex = line.find(const)
+                                    #assert startindex != -1
+
+                                    if len(const.split()) < self.constituentphrasecutoff: continue
+
+                                    dataf.write(str(lineid) + '\t' + category.strip() + '\t' +  ' '.join(newline) + '\t' + const  + '\t' + str(0) + '\t' + str(0) + '\t' + str(0)+ '\t' + str(0)+ '\t' + str(0)+ '\t' + str(0)+ '\t' + str(0) + '\n')
+                            else:
+                                dataf.write(str(lineid) + '\t' + category.strip() + '\t' +  ' '.join(newline) + '\t' + line + '\t'  + str(0) + '\t' + str(0) + '\t' + str(0)+ '\t' + str(0)+ '\t' + str(0)+ '\t' + str(0)+ '\t' + str(0) + '\n')
+
+
+            with open(self.categoriesfile,'r') as cats:
+
+                for line in tqdm(cats.readlines()):
+
+                    mlabels = [0,0,0,0,0,0,0]
+
+                    lineid = int(line.split('\t')[0])
+
+                    text = line.split('\t')[2]
+                    phrase = line.split('\t')[-3]
+                    label = line.split('\t')[-2]
+
+                    if label.lower() == 'authority_voice':
+                        mlabels[3] = 1
+                    elif label.lower() == 'unbalanced_power_relations':
+                        mlabels[0] = 1
+                    elif label.lower() == 'metaphors':
+                        mlabels[4] = 1
+                    elif label.lower() == 'shallow_solution':
+                        mlabels[1] = 1
+                    elif label.lower() == 'compassion':
+                        mlabels[5] = 1
+                    elif label.lower() == 'presupposition':
+                        mlabels[2] = 1
+                    else:
+                        mlabels[6] = 1
+
+                    mlabels = '\t'.join([str(e) for e in mlabels])
+
+                    text = self.clean_string(text)
+                    phrase = self.clean_string(phrase)
+
+                    docpos = self.nlp(text)
+                    newline = []
+                    for sent in docpos.sentences:
+                        for word in sent.words:
+                            if word.upos in ['ADJ','ADV','INTJ','VERB','NOUN','PROPN','PRON','ADP']: newline.append(word.text)
+
+                    dataf.write(str(lineid) + '\t' + category.strip() + '\t' + ' '.join(newline) + '\t' + phrase + '\t' + mlabels + '\n')
+
 
 
 
@@ -460,8 +638,8 @@ def main():
     #preprocess.preprocess()
     #preprocess.preprocess_talkdown()
     #preprocess.get_train_test_data(usetalkdown=True)
-    preprocess.get_testids()
-    preprocess.preprocess_test()
+    #preprocess.get_testids()
+    preprocess.get_train_test_multilabel()
 
 
 if __name__ == "__main__":

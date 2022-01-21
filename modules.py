@@ -229,23 +229,37 @@ class LSTMAttention(nn.Module):
 
 
 class BertModels(nn.Module):
-    def __init__(self,bertmodeltype,maxlen=512):
+    def __init__(self,bertmodeltype,maxlen=512,multilabel=0):
         super(BertModels,self).__init__()
 
+        self.multilabel=multilabel
         self.device = torch.device("cuda:0" if torch.cuda.is_available() else "cpu")
 
         if bertmodeltype == 'bert':
             self.tokenizer = BertTokenizer.from_pretrained('bert-base-cased')
-            self.model = BertForSequenceClassification.from_pretrained('bert-base-cased')
+            if self.multilabel == 0:
+                self.model = BertForSequenceClassification.from_pretrained('bert-base-cased')
+            else:
+                self.model = BertForSequenceClassification.from_pretrained('bert-base-cased',num_labels=7)
+
         elif bertmodeltype == 'distilbert':
             self.tokenizer = DistilBertTokenizer.from_pretrained('distilbert-base-cased')
-            self.model = DistilBertForSequenceClassification.from_pretrained('distilbert-base-cased')
+            if self.multilabel == 0:
+                self.model = DistilBertForSequenceClassification.from_pretrained('distilbert-base-cased')
+            else:
+                self.model = DistilBertForSequenceClassification.from_pretrained('distilbert-base-cased',num_labels=7)
         elif bertmodeltype == 'xlnet':
             self.tokenizer = XLNetTokenizer.from_pretrained('xlnet-base-cased')
-            self.model = XLNetForSequenceClassification.from_pretrained('xlnet-base-cased')
+            if self.multilabel == 0:
+                self.model = XLNetForSequenceClassification.from_pretrained('xlnet-base-cased')
+            else:
+                self.model = XLNetForSequenceClassification.from_pretrained('xlnet-base-cased',num_labels=7)
         elif bertmodeltype == 'roberta':
             self.tokenizer = RobertaTokenizer.from_pretrained('roberta-base')
-            self.model = RobertaForSequenceClassification.from_pretrained('roberta-base')
+            if self.multilabel == 0:
+                self.model = RobertaForSequenceClassification.from_pretrained('roberta-base')
+            else:
+                self.model = RobertaForSequenceClassification.from_pretrained('roberta-base',num_labels=7)
 
         self.model.to(self.device)
 
@@ -261,19 +275,27 @@ class BertModels(nn.Module):
         tokens.to(self.device)
 
         if test == False:
-            labels = dataframe['label'].tolist()
-            labels = torch.LongTensor(labels)
-            labels = labels.to(self.device)
-            output = self.model(labels=labels, **tokens)
+            if self.multilabel == 0:
+                labels = dataframe['label'].tolist()
+                labels = torch.LongTensor(labels)
+                labels = labels.to(self.device)
+                output = self.model(labels=labels, **tokens)
+            else:
+                output = self.model(**tokens)
+
         else:
             output = self.model(**tokens)
 
-        return output.loss, output.logits
+        if self.multilabel == 0:
+            return output.loss, output.logits
+        else:
+            return output.logits
+
 
 
 class TrainEval():
 
-    def __init__(self,pclfile,categoryfile,learningrate=1e-5,modeltype='rnn',bertmodeltype='rawdistilbert',rnntype='lstm',maxlentext=256,maxlenphrase=64,devbatchsize=1000,weightdecay=0.01,bestmodelname='bestmodel.txt',hiddensize=256,numlayers=2,forcnn=False):
+    def __init__(self,pclfile,categoryfile,learningrate=1e-5,modeltype='rnn',bertmodeltype='rawdistilbert',rnntype='lstm',maxlentext=256,maxlenphrase=64,devbatchsize=1000,weightdecay=0.01,bestmodelname='bestmodel.txt',hiddensize=256,numlayers=2,forcnn=False,multilabel=0):
 
         if os.path.isdir('tensorboarddir/'):
             shutil.rmtree('tensorboarddir/')
@@ -284,45 +306,54 @@ class TrainEval():
 
         print ('Starting pre-processing')
         self.preprocess = PreprocessingUtils(pclfile,categoryfile,testfile=None)
-        self.preprocess.get_train_test_data(usetalkdown=False,forcnn=forcnn)
+        if multilabel == 0:
+            self.preprocess.get_train_test_data(usetalkdown=False,forcnn=forcnn)
+        else:
+            self.preprocess.get_train_test_multilabel(forcnn=forcnn)
 
         self.modeltype = modeltype
         self.bertmodeltype = bertmodeltype
         self.learningrate = learningrate
         self.rnntype = rnntype
+        self.multilabel = multilabel
 
         self.devbatchsize=devbatchsize
 
         self.bestmodelname = bestmodelname
 
         if modeltype == 'bert':
-            self.model = BertModels(bertmodeltype=bertmodeltype,maxlen=maxlentext)
+            self.model = BertModels(bertmodeltype=bertmodeltype,maxlen=maxlentext,multilabel=multilabel)
         elif modeltype == 'rnn':
-            self.model = LSTMAttention(rnntype=rnntype,bertmodeltype=bertmodeltype,maxlentext=maxlentext,maxlenphrase=maxlenphrase,hiddensize=hiddensize,numlayers=numlayers)
+            self.model = LSTMAttention(rnntype=rnntype,bertmodeltype=bertmodeltype,maxlentext=maxlentext,maxlenphrase=maxlenphrase,hiddensize=hiddensize,numlayers=numlayers,multilabel=multilabel)
         else: # cnn
-            self.model = CNNBert(bertmodeltype=bertmodeltype,maxlen=maxlentext)
+            self.model = CNNBert(bertmodeltype=bertmodeltype,maxlen=maxlentext,multilabel=multilabel)
 
         self.bestmodel = ''
 
         self.softmax = nn.Softmax()
+        self.sigm = nn.Sigmoid()
 
         self.optimizer = torch.optim.AdamW(self.model.parameters(), lr=learningrate,weight_decay=weightdecay)
 
-        if self.modeltype != 'bert':
-            self.loss = nn.CrossEntropyLoss(weight=torch.FloatTensor([1,10]))
-            self.loss.to(self.device)
+        if self.multilabel == 0:
+            if self.modeltype != 'bert':
+                self.loss = nn.CrossEntropyLoss(weight=torch.FloatTensor([1,10]))
+        else:
+            self.loss = nn.BCEWithLogitsLoss()
 
-
-        #self.scheduler = torch.optim.lr_scheduler.MultiStepLR(self.optimizer,milestones=[5000],gamma=0.1)
+        self.loss.to(self.device)
 
         self.epochs = 1000000
         self.samplesize = 32
 
-        self.evalstep = 500
+        self.evalstep = 50
         self.earlystopgap = 20
         self.maxdevf1 = float('-inf')
+        self.mindevloss = float('inf')
 
         self.checkpointfile = 'data/checkpoint/model.pt'
+
+        self.threshold = 0.5
 
     def set_seed(self,seed):
 
@@ -449,8 +480,29 @@ class TrainEval():
 
         earlystopcounter = 0
 
-        postraindata = self.preprocess.traindata.loc[self.preprocess.traindata['label'] == 1]
-        negtraindata = self.preprocess.traindata.loc[self.preprocess.traindata['label'] == 0]
+        if self.multilabel == 0:
+            postraindata = self.preprocess.traindata.loc[self.preprocess.traindata['label'] == 1]
+            negtraindata = self.preprocess.traindata.loc[self.preprocess.traindata['label'] == 0]
+
+        else:
+            postraindata = self.preprocess.traindata.loc[(self.preprocess.traindata['unbalanced_power'] == 1) | (
+                        self.preprocess.traindata['shallowsolution'] == 1) | (self.preprocess.traindata[
+                                                                                  'presupposition'] == 1) | (
+                                                                     self.preprocess.traindata[
+                                                                         'authorityvoice'] == 1) | (
+                                                                     self.preprocess.traindata['metaphor'] == 1) | (
+                                                                     self.preprocess.traindata['compassion'] == 1) | (
+                                                                     self.preprocess.traindata['poorermerrier'] == 1)]
+
+            negtraindata = self.preprocess.traindata.loc[(self.preprocess.traindata['unbalanced_power'] == 0) & (
+                        self.preprocess.traindata['shallowsolution'] == 0) & (self.preprocess.traindata[
+                                                                                  'presupposition'] == 0) & (
+                                                                     self.preprocess.traindata[
+                                                                         'authorityvoice'] == 0) & (
+                                                                     self.preprocess.traindata['metaphor'] == 0) & (
+                                                                     self.preprocess.traindata['compassion'] == 0) & (
+                                                                     self.preprocess.traindata['poorermerrier'] == 0)]
+
 
         torch.cuda.empty_cache()
 
@@ -472,13 +524,18 @@ class TrainEval():
             sample = pd.concat([possample, negsample], ignore_index=True)
             sample = sample.sample(frac=1).reset_index(drop=True)
 
-            if self.modeltype == 'bert':
+            if self.multilabel == 0 and self.modeltype == 'bert':
                 loss, _ = self.model(sample)
-
             else:
                 logits = self.model(sample)
-                labels = sample['label'].tolist()
-                labels = torch.LongTensor(labels)
+
+                if self.multilabel == 0:
+                    labels = sample['label'].tolist()
+                    labels = torch.LongTensor(labels)
+                else:
+                    labels = sample[['unbalanced_power','shallowsolution','presupposition','authorityvoice','metaphor','compassion','poorermerrier']].values.tolist()
+                    labels = torch.FloatTensor(labels)
+
                 labels = labels.to(self.device)
 
                 loss = self.loss(logits,labels)
@@ -487,8 +544,6 @@ class TrainEval():
 
             self.optimizer.step()
             self.optimizer.zero_grad()
-
-            #self.scheduler.step()
 
             self.writer.add_scalar('train_loss', loss.item(), epoch)
 
@@ -502,8 +557,13 @@ class TrainEval():
 
                     preds = pd.DataFrame()
 
-                    devlabels = self.preprocess.refinedlabelsdev[['lineid','label']]
+                    if self.multilabel == 0:
+                        devlabels = self.preprocess.refinedlabelsdev[['lineid','label']]
+                    else:
+                        devlabels = self.preprocess.refinedlabelsdev[['lineid','unbalanced_power','shallowsolution','presupposition','authorityvoice','metaphor','compassion','poorermerrier']]
+
                     devloss = 0
+
 
                     for j in range(0, len(self.preprocess.devdata),self.devbatchsize):
 
@@ -514,64 +574,128 @@ class TrainEval():
 
                         df.reset_index(drop=True,inplace=True)
 
-                        if self.modeltype == 'bert':
+                        if self.modeltype == 'bert' and self.multilabel == 0:
                             loss, logit = self.model(df)
                         else:
-                            labels = df['label'].tolist()
-                            labels = torch.LongTensor(labels)
+                            if self.multilabel == 0:
+                                labels = df['label'].tolist()
+                                labels = torch.LongTensor(labels)
+                            else:
+                                labels = df[['unbalanced_power','shallowsolution','presupposition','authorityvoice','metaphor','compassion','poorermerrier']].values.tolist()
+                                labels = torch.FloatTensor(labels)
+
                             labels = labels.to(self.device)
 
                             logit = self.model(df)
 
                             loss = self.loss(logit,labels)
 
-                        logitsdf = pd.DataFrame(logit.tolist(),columns=['zerologit','onelogit']).reset_index(drop=True)
-                        probdf = pd.DataFrame(self.softmax(logit).tolist(),columns=['zeroprob','oneprob']).reset_index(drop=True)
+                        if self.multilabel == 0:
+                            logitsdf = pd.DataFrame(logit.tolist(),columns=['zerologit','onelogit']).reset_index(drop=True)
+                            probdf = pd.DataFrame(self.softmax(logit).tolist(),columns=['zeroprob','oneprob']).reset_index(drop=True)
 
                         devloss += loss.item()
-                        p = torch.argmax(logit, dim=1)
 
-                        df['preds'] = p.tolist()
-                        df = pd.concat([df,logitsdf,probdf],axis=1,ignore_index=True)
+                        if self.multilabel == 0:
+                            p = torch.argmax(logit, dim=1)
 
-                        preds = preds.append(df,ignore_index=True)
+                            df['preds'] = p.tolist()
 
-                    preds.columns = ['lineid','category','text','phrase','label','preds','zerologit','onelogit','zeroprob','oneprob']
-                    preds2 = deepcopy(preds)
+                            df = pd.concat([df,logitsdf,probdf],axis=1,ignore_index=True)
+                            preds = preds.append(df,ignore_index=True)
 
-                    preds.drop(['label'],axis=1,inplace=True)
+                        else:
+                            p = (logit > self.threshold).type(torch.uint8)
+                            p = pd.DataFrame(p.tolist(),columns=['unbalanced_power_pred','shallowsolution_pred','presupposition_pred','authorityvoice_pred','metaphor_pred','compassion_pred','poorermerrier_pred']).reset_index(drop=True)
+                            df = pd.concat([df,p], axis=1, ignore_index=True)
+                            preds = preds.append(df, ignore_index=True)
 
-                    preds = preds.loc[preds.groupby(['lineid'])['preds'].idxmax()].reset_index(drop=True)
 
-                    preds.set_index('lineid')
-                    devlabels.set_index('lineid')
+                    if self.multilabel == 0:
+                        preds.columns = ['lineid','category','text','phrase','label','preds','zerologit','onelogit','zeroprob','oneprob']
+                    else:
+                        preds.columns = ['lineid', 'category', 'text', 'phrase', "unbalanced_power","shallowsolution","presupposition","authorityvoice","metaphor","compassion","poorermerrier",
+                                         'unbalanced_power_pred','shallowsolution_pred','presupposition_pred','authorityvoice_pred','metaphor_pred','compassion_pred','poorermerrier_pred']
 
-                    devlabels = devlabels.merge(preds,how='inner',on='lineid')
-                    devlabels.set_index('lineid')
+                    if self.multilabel == 0:
 
-                    f1score = f1_score(devlabels['label'].tolist(), devlabels['preds'].tolist())
+                        preds2 = deepcopy(preds)
 
-                    self.writer.add_scalar('dev_loss', devloss, int(epoch / self.evalstep))
-                    self.writer.add_scalar('dev_f1', f1score, int(epoch / self.evalstep))
+                        preds.drop(['label'],axis=1,inplace=True)
 
-                    print('dev f1 and loss: ' + str(f1score) + ',' + str(devloss))
+                        preds = preds.loc[preds.groupby(['lineid'])['preds'].idxmax()].reset_index(drop=True)
 
-                    if f1score > self.maxdevf1:
+                        preds.set_index('lineid')
+                        devlabels.set_index('lineid')
 
-                        self.maxdevf1 = f1score
-                        self.bestmodel = self.checkpointfile.replace('.pt', '_' + self.modeltype + '_' + self.bertmodeltype + '_' + self.rnntype + '_' + str(f1score) +  '.pt')
+                        devlabels = devlabels.merge(preds,how='inner',on='lineid')
+                        devlabels.set_index('lineid')
 
-                        torch.save({'epoch':epoch,'model_state_dict':self.model.state_dict(),'optimizer_state_dict':self.optimizer.state_dict()}, self.bestmodel)
-                        devlabels.to_csv('data/errors/errors_' + self.modeltype + '_' + self.bertmodeltype + '_' + self.rnntype + '_' +  str(f1score) + '.csv')
-                        preds2.to_csv('data/proba/blendeddata_'  + self.modeltype + '_' + self.bertmodeltype + '_' + self.rnntype + '_' + str(f1score) +  '.csv')
+                        f1score = f1_score(devlabels['label'].tolist(), devlabels['preds'].tolist())
 
-                        earlystopcounter = 0
+                        self.writer.add_scalar('dev_loss', devloss, int(epoch / self.evalstep))
+                        self.writer.add_scalar('dev_f1', f1score, int(epoch / self.evalstep))
 
-                        self.write_best_model(f1score)
+                        print('dev f1 and loss: ' + str(f1score) + ',' + str(devloss))
 
-                    if earlystopcounter > self.earlystopgap:
-                        print('early stop at epoch:' + str(epoch))
-                        break
+                        if f1score > self.maxdevf1:
+
+                            self.maxdevf1 = f1score
+                            self.bestmodel = self.checkpointfile.replace('.pt', '_' + self.modeltype + '_' + self.bertmodeltype + '_' + self.rnntype + '_' + str(f1score) +  '.pt')
+
+                            torch.save({'epoch':epoch,'model_state_dict':self.model.state_dict(),'optimizer_state_dict':self.optimizer.state_dict()}, self.bestmodel)
+                            devlabels.to_csv('data/errors/errors_' + self.modeltype + '_' + self.bertmodeltype + '_' + self.rnntype + '_' +  str(f1score) + '.csv')
+                            preds2.to_csv('data/proba/blendeddata_'  + self.modeltype + '_' + self.bertmodeltype + '_' + self.rnntype + '_' + str(f1score) +  '.csv')
+
+                            earlystopcounter = 0
+
+                            self.write_best_model(f1score)
+
+                        if earlystopcounter > self.earlystopgap:
+                            print('early stop at epoch:' + str(epoch))
+                            break
+
+                    else:
+
+                        preds = preds.groupby(['lineid'])[
+                            ['lineid','unbalanced_power_pred', 'shallowsolution_pred', 'presupposition_pred',
+                             'authorityvoice_pred', 'metaphor_pred', 'compassion_pred',
+                             'poorermerrier_pred']].max().reset_index(drop=True)
+
+                        preds = preds.set_index('lineid')
+
+                        devlabels = devlabels.set_index('lineid')
+                        devlabels = devlabels.merge(preds,on='lineid',how='inner')
+                        devlabels = devlabels.loc[self.preprocess.devids]
+
+                        f1score = f1_score(devlabels[['unbalanced_power','shallowsolution','presupposition','authorityvoice','metaphor',"compassion","poorermerrier"]].values.tolist(),devlabels[['unbalanced_power_pred', 'shallowsolution_pred', 'presupposition_pred',
+                             'authorityvoice_pred', 'metaphor_pred', 'compassion_pred',
+                             'poorermerrier_pred']].values.tolist(),average=None)
+
+                        self.writer.add_scalar('dev_f1_avg', np.mean(f1score), int(epoch / self.evalstep))
+                        self.writer.add_scalar('dev_f1_unbalanced', f1score[0], int(epoch / self.evalstep))
+                        self.writer.add_scalar('dev_f1_shallowsln', f1score[1], int(epoch / self.evalstep))
+                        self.writer.add_scalar('dev_f1_presupp', f1score[2], int(epoch / self.evalstep))
+                        self.writer.add_scalar('dev_f1_authority', f1score[3], int(epoch / self.evalstep))
+                        self.writer.add_scalar('dev_f1_metaphor', f1score[4], int(epoch / self.evalstep))
+                        self.writer.add_scalar('dev_f1_compassion', f1score[5], int(epoch / self.evalstep))
+                        self.writer.add_scalar('dev_f1_poorermerrier', f1score[6], int(epoch / self.evalstep))
+                        self.writer.add_scalar('dev_loss', devloss, int(epoch / self.evalstep))
+
+
+                        print('f1 score and dev loss: ' + str(np.mean(f1score)) + ',' + str(devloss))
+
+                        if np.mean(f1score) > self.maxdevf1:
+
+                            self.maxdevf1 = np.mean(f1score)
+                            self.bestmodel = self.checkpointfile.replace('.pt','_multilabel_' + self.modeltype + '_' + self.bertmodeltype + '_' + self.rnntype + '_' + str(np.mean(f1score)) + '.pt')
+
+                            torch.save({'epoch': epoch, 'model_state_dict': self.model.state_dict(),
+                                        'optimizer_state_dict': self.optimizer.state_dict()}, self.bestmodel)
+
+                            devlabels.to_csv('data/errors/multilabel_preds_' + self.modeltype + '_' + self.bertmodeltype + '_' + self.rnntype + '_' +  str(np.mean(f1score)) + '.csv')
+
+                            earlystopcounter = 0
 
                     self.model.train()
 
@@ -582,14 +706,15 @@ def main():
     parser.add_argument('--lr', type=float, default=1e-6)
     parser.add_argument('--maxlentext', type=int, default=224)
     parser.add_argument('--maxlenphrase', type=int, default=64)
-    parser.add_argument('--devbat', type=int, default=250)
+    parser.add_argument('--devbat', type=int, default=500)
     parser.add_argument('--wd', type=float, default=0.01)
-    parser.add_argument('--bertmodeltype',type=str, default='rawdistilbert')
-    parser.add_argument('--modeltype', type=str, default='cnn')
+    parser.add_argument('--bertmodeltype',type=str, default='distilbert')
+    parser.add_argument('--modeltype', type=str, default='bert')
     parser.add_argument('--rnntype', type=str, default='lstm')
     parser.add_argument('--bestmodelname', type=str, default='bestmodel.txt')
     parser.add_argument('--hiddensize', type=int, default=256)
     parser.add_argument('--numlayers', type=int, default=2)
+    parser.add_argument('--multilabel', type=int, default=0)
 
 
     args = parser.parse_args()
@@ -602,10 +727,16 @@ def main():
     else:
         forcnn = False
 
-    traineval = TrainEval(pclfile=pclfile,categoryfile=categoriesfile,modeltype=args.modeltype, bertmodeltype=args.bertmodeltype,rnntype=args.rnntype,learningrate=args.lr,maxlentext=args.maxlentext,maxlenphrase=args.maxlenphrase,devbatchsize=args.devbat,weightdecay=args.wd,bestmodelname=args.bestmodelname,hiddensize=args.hiddensize,numlayers=args.numlayers,forcnn=forcnn)
+    traineval = TrainEval(pclfile=pclfile,categoryfile=categoriesfile,modeltype=args.modeltype, bertmodeltype=args.bertmodeltype,rnntype=args.rnntype,learningrate=args.lr,maxlentext=args.maxlentext,maxlenphrase=args.maxlenphrase,devbatchsize=args.devbat,weightdecay=args.wd,bestmodelname=args.bestmodelname,hiddensize=args.hiddensize,numlayers=args.numlayers,forcnn=forcnn,multilabel=args.multilabel)
     if args.modeltype != 'cnn':
+        if args.multilabel == 0:
+            print ('Training single classification')
+        else:
+            print ('Training multi-label classification')
+
         traineval.train_eval_models()
     else:
+        print ('training for cnn')
         traineval.train_eval_cnn_models()
 
 
