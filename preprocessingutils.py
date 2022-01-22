@@ -63,6 +63,7 @@ class PreprocessingUtils():
 
                 self.traindata = self.traindata.merge(refinedlabelstrain,on='lineid',how='inner')
                 self.devdata = self.devdata.merge(self.refinedlabelsdev, on='lineid', how='inner')
+                self.devdata.drop(['label'],axis=1,inplace=True)
 
             else:
 
@@ -81,6 +82,7 @@ class PreprocessingUtils():
 
                 self.traindata = self.traindata.merge(refinedlabelstrain, on='lineid', how='inner')
                 self.devdata = self.devdata.merge(self.refinedlabelsdev, on='lineid', how='inner')
+                self.devdata.drop(['label'], axis=1, inplace=True)
 
                 self.traindata.to_csv('traindatacnn.tsv', sep='\t', index=False)
                 self.devdata.to_csv('devdatacnn.tsv', sep='\t', index=False)
@@ -116,9 +118,6 @@ class PreprocessingUtils():
 
                 self.traindata.to_csv('traindatamulti.tsv',sep='\t',index=False)
                 self.devdata.to_csv('devdatamulti.tsv',sep='\t',index=False)
-
-
-
 
 
     def get_train_test_data(self,usetalkdown=False,testdata=False,forcnn=False):
@@ -216,7 +215,6 @@ class PreprocessingUtils():
 
                 self.labeledids.add(lineid)
 
-
     def get_testids(self):
         with open(self.testfile,'r') as ts:
             for line in ts.readlines():
@@ -229,7 +227,6 @@ class PreprocessingUtils():
             for line in ds.readlines():
                 line = int(line.split(',')[0])
                 self.devids.append(line)
-
 
     def clean_string(self,line):
 
@@ -381,8 +378,6 @@ class PreprocessingUtils():
 
                         out.write(str(lineid) + '\t' + line + '\n')
 
-
-
     def preprocess_test(self):
 
         testfilelineids = set()
@@ -458,9 +453,6 @@ class PreprocessingUtils():
 
                         dataf.write(
                             str(lineid) + '\t' + line.strip() + '\t' + str(label) + '\n')
-
-
-
 
     def preprocess(self):
 

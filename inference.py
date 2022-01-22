@@ -8,14 +8,17 @@ from modules import LSTMAttention, BertModels,CNNBert
 from tqdm import tqdm
 
 class Inference():
-    def __init__(self,bestmodelpath, pclfile,categoriesfile,testfile,modeltype='rnn',bertmodeltype='rawdistilbert',devbatchsize=250,rnntype='lstm',maxlenphrase=256,maxlentext=256,hiddensize=256,numlayers=2,forcnn=False):
+    def __init__(self,bestmodelpath, pclfile,categoriesfile,testfile,modeltype='rnn',bertmodeltype='rawdistilbert',devbatchsize=250,rnntype='lstm',maxlenphrase=256,maxlentext=256,hiddensize=256,numlayers=2,forcnn=False,multilabel=0):
 
         self.pclfile = pclfile
         self.categoriesfile = categoriesfile
         self.testfile = testfile
 
         self.preprocess = PreprocessingUtils(pclfile,categoriesfile,testfile)
-        self.preprocess.get_train_test_data(usetalkdown=False,testdata=True,forcnn=forcnn)
+        if multilabel == 0:
+            self.preprocess.get_train_test_data(usetalkdown=False,testdata=True,forcnn=forcnn)
+        else:
+            self.preprocess.get_train_test_multilabel(testdata=True, forcnn=forcnn)
 
         self.modeltype = modeltype
         self.bertmodeltype = bertmodeltype
@@ -23,11 +26,11 @@ class Inference():
         self.devbatchsize = devbatchsize
 
         if modeltype == 'bert':
-            self.model = BertModels(bertmodeltype=bertmodeltype, maxlen=maxlentext)
+            self.model = BertModels(bertmodeltype=bertmodeltype, maxlen=maxlentext,multilabel=multilabel)
         elif modeltype == 'rnn':
-            self.model = LSTMAttention(rnntype=rnntype,bertmodeltype=bertmodeltype,maxlentext=maxlentext,maxlenphrase=maxlenphrase,hiddensize=hiddensize,numlayers=numlayers)
+            self.model = LSTMAttention(rnntype=rnntype,bertmodeltype=bertmodeltype,maxlentext=maxlentext,maxlenphrase=maxlenphrase,hiddensize=hiddensize,numlayers=numlayers,multilabel=multilabel)
         else:
-            self.model = CNNBert(maxlen=maxlentext,bertmodeltype=bertmodeltype)
+            self.model = CNNBert(maxlen=maxlentext,bertmodeltype=bertmodeltype,multilabel=multilabel)
 
         checkpoint = torch.load(bestmodelpath)
         self.model.load_state_dict(checkpoint['model_state_dict'])
@@ -36,6 +39,9 @@ class Inference():
         self.model.to(self.device)
 
         self.softmax = nn.Softmax()
+
+        self.multilabel = multilabel
+        self.threshold = 0.5
 
     def inference_cnn(self):
 
@@ -56,27 +62,43 @@ class Inference():
 
                 logit = self.model(df)
 
-                logitsdf = pd.DataFrame(logit.tolist(), columns=['zerologit', 'onelogit']).reset_index(drop=True)
-                probdf = pd.DataFrame(self.softmax(logit).tolist(), columns=['zeroprob', 'oneprob']).reset_index(
-                    drop=True)
-                p = torch.argmax(logit, dim=1)
+                if self.multilabel == 0:
+                    logitsdf = pd.DataFrame(logit.tolist(), columns=['zerologit', 'onelogit']).reset_index(drop=True)
+                    probdf = pd.DataFrame(self.softmax(logit).tolist(), columns=['zeroprob', 'oneprob']).reset_index(
+                        drop=True)
+                    p = torch.argmax(logit, dim=1)
 
-                df['preds'] = p.tolist()
-                df = pd.concat([df, logitsdf, probdf], axis=1, ignore_index=True)
+                    df['preds'] = p.tolist()
+                    df = pd.concat([df, logitsdf, probdf], axis=1, ignore_index=True)
+                else:
+                    p = (logit > self.threshold).type(torch.uint8)
+                    p = pd.DataFrame(p.tolist(),
+                                     columns=['unbalanced_power_pred', 'shallowsolution_pred', 'presupposition_pred',
+                                              'authorityvoice_pred', 'metaphor_pred', 'compassion_pred',
+                                              'poorermerrier_pred']).reset_index(drop=True)
+                    df = pd.concat([df, p], axis=1, ignore_index=True)
+
 
                 preds = preds.append(df, ignore_index=True)
 
-            preds.columns = ['lineid',  'text', 'preds', 'zerologit', 'onelogit',
-                             'zeroprob', 'oneprob']
+            if self.multilabel == 0:
+                preds.columns = ['lineid',  'text', 'preds', 'zerologit', 'onelogit',
+                                 'zeroprob', 'oneprob']
 
 
-            preds = preds.set_index('lineid')
+                preds = preds.set_index('lineid')
 
-            preds.to_csv(
-                'data/inference/inference_' + self.modeltype + '_' + self.bertmodeltype + '_' + self.rnntype + '.tsv',
-                sep='\t', index=True)
+                preds.to_csv(
+                    'data/inference/inference_' + self.modeltype + '_' + self.bertmodeltype + '_' + self.rnntype + '.tsv',
+                    sep='\t', index=True)
+            else:
+                preds.columns = ['lineid', 'category', 'text', 'phrase',
+                                 'unbalanced_power_pred', 'shallowsolution_pred', 'presupposition_pred',
+                                 'authorityvoice_pred', 'metaphor_pred', 'compassion_pred', 'poorermerrier_pred']
 
-
+                preds.to_csv(
+                    'data/inference/inference_multilabel_' + self.modeltype + '_' + self.bertmodeltype + '_' + self.rnntype + '.tsv',
+                    sep='\t', index=False)
 
     def inference(self):
 
@@ -99,24 +121,50 @@ class Inference():
                 else:
                     logit = self.model(df)
 
-                logitsdf = pd.DataFrame(logit.tolist(), columns=['zerologit', 'onelogit']).reset_index(drop=True)
-                probdf = pd.DataFrame(self.softmax(logit).tolist(), columns=['zeroprob', 'oneprob']).reset_index(
-                    drop=True)
-                p = torch.argmax(logit, dim=1)
+                if self.multilabel == 0:
+                    logitsdf = pd.DataFrame(logit.tolist(), columns=['zerologit', 'onelogit']).reset_index(drop=True)
+                    probdf = pd.DataFrame(self.softmax(logit).tolist(), columns=['zeroprob', 'oneprob']).reset_index(drop=True)
+                    p = torch.argmax(logit, dim=1)
 
-                df['preds'] = p.tolist()
-                df = pd.concat([df, logitsdf, probdf], axis=1, ignore_index=True)
+                    df['preds'] = p.tolist()
+                    df = pd.concat([df, logitsdf, probdf], axis=1, ignore_index=True)
+
+                else:
+                    p = (logit > self.threshold).type(torch.uint8)
+                    p = pd.DataFrame(p.tolist(),
+                                     columns=['unbalanced_power_pred', 'shallowsolution_pred', 'presupposition_pred',
+                                              'authorityvoice_pred', 'metaphor_pred', 'compassion_pred',
+                                              'poorermerrier_pred']).reset_index(drop=True)
+                    df = pd.concat([df, p], axis=1, ignore_index=True)
+
+
 
                 preds = preds.append(df, ignore_index=True)
 
-            preds.columns = ['lineid', 'category', 'text', 'phrase', 'preds', 'zerologit', 'onelogit',
+
+            if self.multilabel == 0:
+                preds.columns = ['lineid', 'category', 'text', 'phrase', 'preds', 'zerologit', 'onelogit',
                              'zeroprob', 'oneprob']
+                preds.to_csv(
+                    'data/proba/testproba/testproba_' + self.modeltype + '_' + self.bertmodeltype + '_' + self.rnntype + '.tsv',
+                    sep='\t', index=False)
+                preds = preds.loc[preds.groupby(['lineid'])['preds'].idxmax()].reset_index(drop=True)
+                preds.set_index('lineid')
 
-            preds.to_csv('data/proba/testproba/testproba_'+ self.modeltype + '_' + self.bertmodeltype + '_' + self.rnntype + '.tsv',sep='\t',index=False)
-            preds = preds.loc[preds.groupby(['lineid'])['preds'].idxmax()].reset_index(drop=True)
-            preds.set_index('lineid')
+                preds.to_csv(
+                    'data/inference/inference_' + self.modeltype + '_' + self.bertmodeltype + '_' + self.rnntype + '.tsv',
+                    sep='\t', index=False)
+            else:
+                preds.columns = ['lineid', 'category', 'text', 'phrase',
+                                 'unbalanced_power_pred', 'shallowsolution_pred', 'presupposition_pred',
+                                 'authorityvoice_pred', 'metaphor_pred', 'compassion_pred', 'poorermerrier_pred']
+                preds = preds.groupby(['lineid'])[
+                    ['lineid', 'unbalanced_power_pred', 'shallowsolution_pred', 'presupposition_pred',
+                     'authorityvoice_pred', 'metaphor_pred', 'compassion_pred',
+                     'poorermerrier_pred']].max().reset_index(drop=True)
 
-            preds.to_csv('data/inference/inference_' + self.modeltype + '_' + self.bertmodeltype + '_' + self.rnntype + '.tsv',sep='\t',index=False)
+                preds.to_csv('data/inference/inference_multilabel_'  + self.modeltype + '_' + self.bertmodeltype + '_' + self.rnntype + '.tsv',
+                    sep='\t', index=False)
 
 
 def main():
@@ -128,6 +176,7 @@ def main():
     parser.add_argument('--maxlenphrase', type=int, default=64)
     parser.add_argument('--hiddensize', type=int, default=256)
     parser.add_argument('--numlayers', type=int, default=2)
+    parser.add_argument('--multilabel', type=int, default=0)
 
     args = parser.parse_args()
 
@@ -143,6 +192,7 @@ def main():
     print ('Model Type:' + modeltype)
     print ('Bert Model Type:' + bertmodeltype)
     print ('RNN Type:' + rnntype)
+    print ('Multilabel:' + str(bool(args.multilabel)))
 
     if modeltype == 'cnn':
         forcnn = True
@@ -154,7 +204,13 @@ def main():
     categoriesfile = 'data/dontpatronizeme_v1.4/dontpatronizeme_categories.tsv'
     testfile = 'data/dontpatronizeme_v1.4/testdata.tsv'
 
-    inf = Inference(bestmodelpath=bestmodelpath,pclfile=pclfile,categoriesfile=categoriesfile,testfile=testfile,maxlentext=args.maxlentext,maxlenphrase=args.maxlenphrase,devbatchsize=500,modeltype=modeltype,bertmodeltype=bertmodeltype,rnntype=rnntype,hiddensize=args.hiddensize,numlayers=args.numlayers,forcnn=forcnn)
+    inf = Inference(bestmodelpath=bestmodelpath,pclfile=pclfile,categoriesfile=categoriesfile,testfile=testfile,maxlentext=args.maxlentext,maxlenphrase=args.maxlenphrase,devbatchsize=500,modeltype=modeltype,bertmodeltype=bertmodeltype,rnntype=rnntype,hiddensize=args.hiddensize,numlayers=args.numlayers,forcnn=forcnn,multilabel=args.multilabel)
+
+    if args.multilabel == 1:
+        print ('Inference for multilabel')
+    else:
+        print ('Inference for single label')
+
     if modeltype != 'cnn':
         inf.inference()
     else:
