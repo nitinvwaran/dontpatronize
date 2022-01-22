@@ -58,7 +58,7 @@ class Inference():
                 else:
                     df = self.preprocess.testdata.iloc[j:j + self.devbatchsize]
 
-                df.reset_index(drop=True, inplace=True)
+                df.reset_index(drop=False, inplace=True)
 
                 logit = self.model(df)
 
@@ -115,7 +115,7 @@ class Inference():
                 else:
                     df = self.preprocess.testdata.iloc[j:j + self.devbatchsize]
 
-                df.reset_index(drop=True, inplace=True)
+                df.reset_index(drop=False, inplace=True)
                 if self.modeltype == 'bert':
                     _, logit = self.model(df,test=True)
                 else:
@@ -176,7 +176,7 @@ def main():
     parser.add_argument('--maxlenphrase', type=int, default=64)
     parser.add_argument('--hiddensize', type=int, default=256)
     parser.add_argument('--numlayers', type=int, default=2)
-    parser.add_argument('--multilabel', type=int, default=0)
+    parser.add_argument('--multilabel', type=int, default=1)
 
     args = parser.parse_args()
 
@@ -184,10 +184,17 @@ def main():
         for line in i.readlines():
             bestmodelpath = str(line).strip().split(',')[0]
 
-    params = bestmodelpath.split('_')
-    modeltype = params[1].strip()
-    bertmodeltype = params[2].strip()
-    rnntype = params[3].strip()
+    if args.multilabel == 0:
+        params = bestmodelpath.split('_')
+        modeltype = params[1].strip()
+        bertmodeltype = params[2].strip()
+        rnntype = params[3].strip()
+    else:
+        params = bestmodelpath.split('_')
+        modeltype = params[2].strip()
+        bertmodeltype = params[3].strip()
+        rnntype = params[4].strip()
+
 
     print ('Model Type:' + modeltype)
     print ('Bert Model Type:' + bertmodeltype)

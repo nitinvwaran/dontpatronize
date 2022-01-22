@@ -353,8 +353,8 @@ class TrainEval():
         self.epochs = 1000000
         self.samplesize = 32
 
-        self.evalstep = 50
-        self.earlystopgap = 20
+        self.evalstep = 500
+        self.earlystopgap = 50
         self.maxdevf1 = float('-inf')
         self.mindevloss = float('inf')
 
@@ -487,7 +487,7 @@ class TrainEval():
                             df['preds'] = p.tolist()
                             df = pd.concat([df,logitsdf,probdf],axis=1,ignore_index=True)
                         else:
-                            p = (logit > self.threshold).type(torch.uint8)
+                            p = (self.sigm(logit) > self.threshold).type(torch.uint8)
                             p = pd.DataFrame(p.tolist(), columns=['unbalanced_power_pred', 'shallowsolution_pred',
                                                                   'presupposition_pred', 'authorityvoice_pred',
                                                                   'metaphor_pred', 'compassion_pred',
@@ -609,8 +609,8 @@ class TrainEval():
 
             self.model.train()
 
-            possample = postraindata.sample(n=1)
-            negsample = negtraindata.sample(n=self.samplesize - 1)
+            possample = postraindata.sample(n=self.samplesize // 2)
+            negsample = negtraindata.sample(n=self.samplesize // 2)
 
             sample = pd.concat([possample, negsample], ignore_index=True)
             sample = sample.sample(frac=1).reset_index(drop=True)
@@ -720,7 +720,7 @@ class TrainEval():
                             preds = preds.append(df,ignore_index=True)
 
                         else:
-                            p = (logit > self.threshold).type(torch.uint8)
+                            p = (self.sigm(logit) > self.threshold).type(torch.uint8)
                             p = pd.DataFrame(p.tolist(),columns=['unbalanced_power_pred','shallowsolution_pred','presupposition_pred','authorityvoice_pred','metaphor_pred','compassion_pred','poorermerrier_pred']).reset_index(drop=True)
                             df = pd.concat([df,p], axis=1, ignore_index=True)
                             preds = preds.append(df, ignore_index=True)
@@ -812,6 +812,17 @@ class TrainEval():
 
                             earlystopcounter = 0
 
+                            self.write_best_model(f1score)
+
+                            with open ('data/errors/bestscoresmulti_' +  self.modeltype + '_' + self.bertmodeltype + '_' + self.rnntype + '_' +  str(np.mean(f1score)),'w'  ) as best:
+                                best.write('Unbalanced,' + str(f1score[0]) + '\n')
+                                best.write('shallowsln,' + str(f1score[1]) + '\n')
+                                best.write('Presupp,' + str(f1score[2]) + '\n')
+                                best.write('Authority,' + str(f1score[3]) + '\n')
+                                best.write('Metaphor,' + str(f1score[4]) + '\n')
+                                best.write('Compassion,' + str(f1score[5]) + '\n')
+                                best.write('PoorerMerrier,' + str(f1score[6]) + '\n')
+
 
 
 def main():
@@ -819,12 +830,12 @@ def main():
     parser = argparse.ArgumentParser()
 
     parser.add_argument('--lr', type=float, default=1e-6)
-    parser.add_argument('--maxlentext', type=int, default=128)
+    parser.add_argument('--maxlentext', type=int, default=224)
     parser.add_argument('--maxlenphrase', type=int, default=64)
     parser.add_argument('--devbat', type=int, default=500)
     parser.add_argument('--wd', type=float, default=0.01)
-    parser.add_argument('--bertmodeltype',type=str, default='rawdistilbert')
-    parser.add_argument('--modeltype', type=str, default='cnn')
+    parser.add_argument('--bertmodeltype',type=str, default='distilbert')
+    parser.add_argument('--modeltype', type=str, default='bert')
     parser.add_argument('--rnntype', type=str, default='lstm')
     parser.add_argument('--bestmodelname', type=str, default='bestmodel.txt')
     parser.add_argument('--hiddensize', type=int, default=256)
