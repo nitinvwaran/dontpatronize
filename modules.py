@@ -354,7 +354,7 @@ class TrainEval():
         self.samplesize = 32
 
         self.evalstep = 500
-        self.earlystopgap = 50
+        self.earlystopgap = 20
         self.maxdevf1 = float('-inf')
         self.mindevloss = float('inf')
 
@@ -413,8 +413,8 @@ class TrainEval():
 
             self.model.train()
 
-            possample = postraindata.sample(n=1)
-            negsample = negtraindata.sample(n=self.samplesize - 1)
+            possample = postraindata.sample(n=self.samplesize // 2)
+            negsample = negtraindata.sample(n=self.samplesize // 2)
 
             sample = pd.concat([possample, negsample], ignore_index=True)
             sample = sample.sample(frac=1).reset_index(drop=True)
@@ -566,6 +566,20 @@ class TrainEval():
 
                             earlystopcounter = 0
 
+                            self.write_best_model(np.mean(f1score))
+
+                            with open ('data/errors/bestscoresmulti_' +  self.modeltype + '_' + self.bertmodeltype + '_' + self.rnntype + '_' +  str(np.mean(f1score)),'w'  ) as best:
+                                best.write('Unbalanced,' + str(f1score[0]) + '\n')
+                                best.write('shallowsln,' + str(f1score[1]) + '\n')
+                                best.write('Presupp,' + str(f1score[2]) + '\n')
+                                best.write('Authority,' + str(f1score[3]) + '\n')
+                                best.write('Metaphor,' + str(f1score[4]) + '\n')
+                                best.write('Compassion,' + str(f1score[5]) + '\n')
+                                best.write('PoorerMerrier,' + str(f1score[6]) + '\n')
+
+                            if earlystopcounter > self.earlystopgap:
+                                print('early stop at epoch:' + str(epoch))
+                                break
 
     def train_eval_models(self,checkpointfile=None):
 
@@ -812,7 +826,7 @@ class TrainEval():
 
                             earlystopcounter = 0
 
-                            self.write_best_model(f1score)
+                            self.write_best_model(np.mean(f1score))
 
                             with open ('data/errors/bestscoresmulti_' +  self.modeltype + '_' + self.bertmodeltype + '_' + self.rnntype + '_' +  str(np.mean(f1score)),'w'  ) as best:
                                 best.write('Unbalanced,' + str(f1score[0]) + '\n')
@@ -823,6 +837,10 @@ class TrainEval():
                                 best.write('Compassion,' + str(f1score[5]) + '\n')
                                 best.write('PoorerMerrier,' + str(f1score[6]) + '\n')
 
+                            if earlystopcounter > self.earlystopgap:
+                                print('early stop at epoch:' + str(epoch))
+                                break
+
 
 
 def main():
@@ -830,17 +848,18 @@ def main():
     parser = argparse.ArgumentParser()
 
     parser.add_argument('--lr', type=float, default=1e-6)
-    parser.add_argument('--maxlentext', type=int, default=224)
-    parser.add_argument('--maxlenphrase', type=int, default=64)
-    parser.add_argument('--devbat', type=int, default=500)
+    parser.add_argument('--maxlentext', type=int, default=192)
+    parser.add_argument('--maxlenphrase', type=int, default=32)
+    parser.add_argument('--devbat', type=int, default=250)
     parser.add_argument('--wd', type=float, default=0.01)
-    parser.add_argument('--bertmodeltype',type=str, default='distilbert')
-    parser.add_argument('--modeltype', type=str, default='bert')
-    parser.add_argument('--rnntype', type=str, default='lstm')
+    parser.add_argument('--bertmodeltype',type=str, default='rawdistilbert')
+    parser.add_argument('--modeltype', type=str, default='rnn')
+    parser.add_argument('--rnntype', type=str, default='gru')
     parser.add_argument('--bestmodelname', type=str, default='bestmodel.txt')
     parser.add_argument('--hiddensize', type=int, default=256)
     parser.add_argument('--numlayers', type=int, default=2)
     parser.add_argument('--multilabel', type=int, default=1)
+    parser.add_argument('--chkpoint', type=str, default='')
 
 
     args = parser.parse_args()
@@ -860,11 +879,17 @@ def main():
     else:
         print('Training multi-label classification')
 
+    if args.chkpoint != '':
+        chkpoint = args.chkpoint
+    else:
+        chkpoint = None
+
+    print ('checkpointfile is:' + str(chkpoint))
     if args.modeltype != 'cnn':
-        traineval.train_eval_models()
+        traineval.train_eval_models(checkpointfile=chkpoint)
     else:
         print ('training for cnn')
-        traineval.train_eval_cnn_models()
+        traineval.train_eval_cnn_models(checkpointfile=chkpoint)
 
 
 if __name__ == "__main__":

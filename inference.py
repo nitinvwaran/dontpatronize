@@ -42,6 +42,7 @@ class Inference():
 
         self.multilabel = multilabel
         self.threshold = 0.5
+        self.sigm = nn.Sigmoid()
 
     def inference_cnn(self):
 
@@ -58,7 +59,7 @@ class Inference():
                 else:
                     df = self.preprocess.testdata.iloc[j:j + self.devbatchsize]
 
-                df.reset_index(drop=False, inplace=True)
+                df.reset_index(drop=True, inplace=True)
 
                 logit = self.model(df)
 
@@ -71,7 +72,7 @@ class Inference():
                     df['preds'] = p.tolist()
                     df = pd.concat([df, logitsdf, probdf], axis=1, ignore_index=True)
                 else:
-                    p = (logit > self.threshold).type(torch.uint8)
+                    p = (self.sigm(logit) > self.threshold).type(torch.uint8)
                     p = pd.DataFrame(p.tolist(),
                                      columns=['unbalanced_power_pred', 'shallowsolution_pred', 'presupposition_pred',
                                               'authorityvoice_pred', 'metaphor_pred', 'compassion_pred',
@@ -92,7 +93,7 @@ class Inference():
                     'data/inference/inference_' + self.modeltype + '_' + self.bertmodeltype + '_' + self.rnntype + '.tsv',
                     sep='\t', index=True)
             else:
-                preds.columns = ['lineid', 'category', 'text', 'phrase',
+                preds.columns = ['lineid', 'text',
                                  'unbalanced_power_pred', 'shallowsolution_pred', 'presupposition_pred',
                                  'authorityvoice_pred', 'metaphor_pred', 'compassion_pred', 'poorermerrier_pred']
 
@@ -130,7 +131,7 @@ class Inference():
                     df = pd.concat([df, logitsdf, probdf], axis=1, ignore_index=True)
 
                 else:
-                    p = (logit > self.threshold).type(torch.uint8)
+                    p = (self.sigm(logit) > self.threshold).type(torch.uint8)
                     p = pd.DataFrame(p.tolist(),
                                      columns=['unbalanced_power_pred', 'shallowsolution_pred', 'presupposition_pred',
                                               'authorityvoice_pred', 'metaphor_pred', 'compassion_pred',
@@ -172,7 +173,7 @@ def main():
     parser = argparse.ArgumentParser()
 
 
-    parser.add_argument('--maxlentext', type=int, default=224)
+    parser.add_argument('--maxlentext', type=int, default=192)
     parser.add_argument('--maxlenphrase', type=int, default=64)
     parser.add_argument('--hiddensize', type=int, default=256)
     parser.add_argument('--numlayers', type=int, default=2)
@@ -183,6 +184,7 @@ def main():
     with open('bestmodel.txt','r') as i:
         for line in i.readlines():
             bestmodelpath = str(line).strip().split(',')[0]
+            break
 
     if args.multilabel == 0:
         params = bestmodelpath.split('_')
