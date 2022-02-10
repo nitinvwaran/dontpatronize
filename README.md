@@ -52,7 +52,7 @@ All training checkpoints end up in ```data/checkpoints```, predictions on dev da
 python modules.py --modeltype bert --bertmodeltype <bert,distilbert,roberta,xlnet> --multilabel <0,1>
 ```
 
-#### To train the RNN-type models:
+#### To train the RNN-type models with Attention head:
 ```
 python modules.py --modeltype rnn --rnntype <lstm,gru> --bertmodeltype <rawbert,rawdistilbert,rawroberta,rawxlnet> --multilabel <0,1>
 ```
