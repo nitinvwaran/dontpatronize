@@ -78,7 +78,9 @@ This folder is re-created upon every run and so previous tensorboards will be lo
 
 ### To run inference with a checkpoint file:
 
-The best model name is stored by default after training in ```bestmodel.txt``` and this is used to load the checkpoint.
+The best model name is stored by default after training in ```bestmodel.txt``` and this is used to load the checkpoint. 
+
+Predictions end up in ```data/inference/```; probabilities in ```data/proba/testproba/``` for blending
 
 ```
 python inference.py --multilabel <0,1>
