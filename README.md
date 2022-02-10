@@ -71,7 +71,7 @@ Other parameters:
 
 #### Tensorboard!
 
-Tensorboards are created in ```data/tensorboarddir``` for each run. Tensorboards track the dev F1 information across eopchs, along with dev and train loss. 
+Tensorboards are created in ```tensorboarddir/``` for each run. Tensorboards track the dev F1 information across eopchs, along with dev and train loss. 
 
 This folder is re-created upon every run and so previous tensorboards will be lost on re-run. 
 
