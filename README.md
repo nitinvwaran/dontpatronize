@@ -6,9 +6,9 @@ This repo contains my entry for [SemEval2022 Task 4](https://sites.google.com/vi
 
 This system placed 26th of 80 in [Task 1](https://competitions.codalab.org/competitions/34344#results) (Top 33%) and 22nd of 50 in [Task 2](https://competitions.codalab.org/competitions/34344#results). Look at the 'Evaluation' phase, ranked by F1 / average F1.
 
-Notably, the system beat the organizer's roberta-baseline for Task 1 (54.91 vs 49.11).
+Notably, the system beat the organizer's roberta-baseline for Task 1 (F1: 54.91 vs 49.11).
 
-It also beat the roberta-baseline for Task 2 (31.61 vs 10.41).
+It also beat the roberta-baseline for Task 2 (F1: 31.61 vs 10.41).
 
 ## Main Ideas
 
