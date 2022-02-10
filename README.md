@@ -18,7 +18,7 @@ The ideas behind [Wang & Potts 2019](https://arxiv.org/abs/1909.11272) were used
 
 ### Three models types were built:
 #### 1. CNNs for Sentence Classification following [Yoon Kim 2014](https://arxiv.org/pdf/1408.5882.pdf)
-This follows the general architecture from Yoon Kim 2014. 9-grams, 7-grams, 5-grams and 3-grams are considered as encompassing condescending signals. 
+This follows the general architecture from Yoon Kim 2014. 9-grams, 7-grams, 5-grams and 3-grams are considered as encompassing condescending signals. It differs a bit in that it uses Average Pooling of the different n-gram signals instead of max-pooling, as multiple signals of condescension / patronizing language could be present.
 
 #### 2. LSTM / GRU with added Attention Head
 This is an LSTM / GRU with an added Attention head on top. Extrapolating from [Wang & Potts 2019](https://arxiv.org/abs/1909.11272), the context and phrase are both passed through separate LSTM / GRU layers, and an Attention head on top attends to information from the context sentence / paragraph, which is concatenated to the hidden state of the phrase signal and passed through a feed-forward layer for final classification. 
