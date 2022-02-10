@@ -69,6 +69,12 @@ Other parameters:
 --chkpoint : optional checkpoint file. It must match the selected architecture
 ```
 
+#### Tensorboard!
+
+Tensorboards are created in ```data/tensorboarddir``` for each run. Tensorboards track the dev F1 information across eopchs, along with dev and train loss. 
+
+This folder is re-created upon every run and so previous tensorboards will be lost on re-run. 
+
 
 ### To run inference with a checkpoint file:
 
