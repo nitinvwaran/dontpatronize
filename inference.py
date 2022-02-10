@@ -1,7 +1,7 @@
 import pandas as pd
 import torch
 import torch.nn as nn
-import argparse
+import argparse, os
 
 from preprocessingutils import PreprocessingUtils
 from modules import LSTMAttention, BertModels,CNNBert
@@ -9,6 +9,14 @@ from tqdm import tqdm
 
 class Inference():
     def __init__(self,bestmodelpath, pclfile,categoriesfile,testfile,modeltype='rnn',bertmodeltype='rawdistilbert',devbatchsize=250,rnntype='lstm',maxlenphrase=256,maxlentext=256,hiddensize=256,numlayers=2,forcnn=False,multilabel=0):
+
+
+        if not os.path.isdir('data/inference/'):
+            os.mkdir('data/inference/')
+
+        if not os.path.isdir('data/proba/testproba/'):
+            os.mkdir('data/proba/testproba/')
+
 
         self.pclfile = pclfile
         self.categoriesfile = categoriesfile
@@ -116,7 +124,7 @@ class Inference():
                 else:
                     df = self.preprocess.testdata.iloc[j:j + self.devbatchsize]
 
-                df.reset_index(drop=False, inplace=True)
+
                 if self.modeltype == 'bert':
                     _, logit = self.model(df,test=True)
                 else:
@@ -131,6 +139,7 @@ class Inference():
                     df = pd.concat([df, logitsdf, probdf], axis=1, ignore_index=True)
 
                 else:
+                    df.reset_index(drop=False, inplace=True)
                     p = (self.sigm(logit) > self.threshold).type(torch.uint8)
                     p = pd.DataFrame(p.tolist(),
                                      columns=['unbalanced_power_pred', 'shallowsolution_pred', 'presupposition_pred',

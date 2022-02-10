@@ -308,6 +308,16 @@ class TrainEval():
             shutil.rmtree('tensorboarddir/')
         os.mkdir('tensorboarddir/')
 
+
+        if not os.path.isdir('data/checkpoint/'):
+            os.mkdir('data/checkpoint/')
+
+        if not os.path.isdir('data/errors/'):
+            os.mkdir('data/errors/')
+
+        if not os.path.isdir('data/proba/'):
+            os.mkdir('data/proba/')
+
         self.writer = SummaryWriter('tensorboarddir/')
         self.device = torch.device("cuda:0" if torch.cuda.is_available() else "cpu")
 
@@ -847,19 +857,19 @@ def main():
 
     parser = argparse.ArgumentParser()
 
-    parser.add_argument('--lr', type=float, default=1e-6)
-    parser.add_argument('--maxlentext', type=int, default=192)
-    parser.add_argument('--maxlenphrase', type=int, default=32)
-    parser.add_argument('--devbat', type=int, default=250)
-    parser.add_argument('--wd', type=float, default=0.01)
-    parser.add_argument('--bertmodeltype',type=str, default='rawdistilbert')
-    parser.add_argument('--modeltype', type=str, default='rnn')
-    parser.add_argument('--rnntype', type=str, default='gru')
+    parser.add_argument('--lr', type=float, default=1e-6, help="learning rate")
+    parser.add_argument('--maxlentext', type=int, default=192, help = "Max. length of the context")
+    parser.add_argument('--maxlenphrase', type=int, default=32,help="Max. length of the phrase")
+    parser.add_argument('--devbat', type=int, default=250,help="Pick the batch size to process dev data")
+    parser.add_argument('--wd', type=float, default=0.01,help="weight decay parameter for AdamW")
+    parser.add_argument('--bertmodeltype',type=str, default='distilbert',help="type of pre-trained model to use")
+    parser.add_argument('--modeltype', type=str, default='bert',help="one of bert,rnn,cnn")
+    parser.add_argument('--rnntype', type=str, default='gru',help="one of lstm,gru")
     parser.add_argument('--bestmodelname', type=str, default='bestmodel.txt')
-    parser.add_argument('--hiddensize', type=int, default=256)
-    parser.add_argument('--numlayers', type=int, default=2)
-    parser.add_argument('--multilabel', type=int, default=1)
-    parser.add_argument('--chkpoint', type=str, default='')
+    parser.add_argument('--hiddensize', type=int, default=256,help="hidden size param for RNN")
+    parser.add_argument('--numlayers', type=int, default=2,help="number of layers param for RNN")
+    parser.add_argument('--multilabel', type=int, default=0,help="0 for Task 1,  1 for Task 2 (multi-label)")
+    parser.add_argument('--chkpoint', type=str, default='',help="path to checkpoint file")
 
 
     args = parser.parse_args()

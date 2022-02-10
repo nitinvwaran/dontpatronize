@@ -146,3 +146,4 @@ dmypy.json
 /devdatamulti.tsv
 /testpreds.csv
 /testpreds_blended.xlsx
+/data/checkpoint/
