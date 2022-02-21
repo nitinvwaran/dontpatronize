@@ -43,6 +43,10 @@ The architectures are pretty much the same, the main difference is that a Multi-
 
 A ```requirements.txt``` file has been added to setup a conda environment with. ```Python 3.8```, ```PyTorch==1.10``` with ```transformers==4.3.3``` are recommended. 
 
+### Data
+
+Is available after filling out a form from the official [repo](https://github.com/Perez-AlmendrosC/dontpatronizeme). Place the data in the data/dontpatronizeme_v1.4/ directory.  
+
 ### Training
 
 All training checkpoints end up in ```data/checkpoints```, predictions on dev data in ```data/errors```, and probabilities on dev data for blending in ```data/proba```.
