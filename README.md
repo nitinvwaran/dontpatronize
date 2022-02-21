@@ -41,7 +41,7 @@ The architectures are pretty much the same, the main difference is that a Multi-
 
 ## OK, enough boring stuff. How do i run this?
 
-A ```requirements.txt``` file has been added to setup a conda environment with. Python 3.8, PyTorch 1.10 with transformers are recommended. 
+A ```requirements.txt``` file has been added to setup a conda environment with. ```Python 3.8```, ```PyTorch==1.10``` with ```transformers==4.3.3``` are recommended. 
 
 ### Training
 
